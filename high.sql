@@ -5,6 +5,8 @@
 */
 
 -- 第一次
+explain formatted
+
 select
     live_id,
     max(sum_user)
@@ -40,7 +42,10 @@ from
 group by
     live_id;
 
+
+
 -- 第二次
+explain  formatted
 select
     live_id,
     max(sum_live_user)
@@ -328,6 +333,7 @@ order by
 
 
 -- STAR 日期交叉问题 promotion_info
+explain formatted
 select
     brand,
     sum(amount_day) over (partition by brand order by brand) -- 加上这一层之后报错 TODO

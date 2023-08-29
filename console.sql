@@ -12,11 +12,11 @@
 */
 
 -- 2022/10/19 9:32 2.1.4 查询数学成绩不及格的学生和其对应的成绩，按照学号升序排序
--- 2022/10/8 10:12 NOTE 先写最里层, 一点一点往外包
--- 2022/10/8 10:19 NOTE join时两个表都要起别名, 子查询在前在后都行
--- 2022/10/8 10:21 NOTE on就是条件, 恒成立跟不写一样
--- 2022/10/8 10:35 NOTE 子查询, 括号单独占一行
--- 2022/10/18 19:47 NOTE 子查询可以用join替代, 但是效率会降低很多
+-- 2022/10/8 10:12  先写最里层, 一点一点往外包
+-- 2022/10/8 10:19  join时两个表都要起别名, 子查询在前在后都行
+-- 2022/10/8 10:21  on就是条件, 恒成立跟不写一样
+-- 2022/10/8 10:35  子查询, 括号单独占一行
+-- 2022/10/18 19:47  子查询可以用join替代, 但是效率会降低很多
 
 select s.stu_id, s2.stu_name, course
 from score s
@@ -67,6 +67,20 @@ select stu_name,
 from student;
 
 -- 2022/10/7 10:16 获取各种时间
+select `current_date`();
+select `current_timestamp`();
+select current_database();
+
+select unix_timestamp();
+select unix_timestamp();
+
+select `current_timestamp`();
+select current_date;
+select `current_timestamp`()
+
+select `current_timestamp`();
+
+
 select `current_date`();
 select `current_timestamp`();
 select unix_timestamp();

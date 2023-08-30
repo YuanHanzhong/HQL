@@ -807,6 +807,7 @@ from course c
 -- 1列变多列问题, sum if group by
 select stu_id,
        sum(`if`(course_name = '语文', course, 0)) `语文`
+       -- NOTE sum if 就是在一列变多列的时候使用
 -- partition by不会去重, 只是多了一列
 from (select stu_id, course_name, course
       from course c

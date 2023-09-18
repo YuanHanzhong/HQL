@@ -85,7 +85,7 @@ from business b;
 select *, sum(cost) over (order by orderdate)
 from business b;
 
--- 开窗函数和聚合函数有什么不同? 有什么优势和劣势? 为什么有了聚合函数还要发明开窗函数? NOTE
+-- 开窗函数和聚合函数有什么不同? 有什么优势和劣势? 为什么有了聚合函数还要发明开窗函数?
 
 -- 集合
 --      无序
@@ -564,9 +564,9 @@ select year(`current_date`())
 
 
 -- 首次写
--- 最内层对数据进行预处理 NOTE
+-- 最内层对数据进行预处理
 -- 反复出现的函数应该提取出来, 作为原始数据 NOTE
--- 灰色注释代表没有使用 NOTE
+-- 灰色注释代表没有使用
 select name, concat(years_old, '岁', monthes, '个月')
 from (select *
            , datediff(`current_date`()
@@ -940,6 +940,8 @@ select stu_id,
 --              为 null 时, 不会算上. 为 0 会统计
 --      2. sum(score)/count(*), 为 null 会统计
 --      3. sum(score)/count(course_id), 兼容性最强, 准确性最高
+--              空行就不是 null 了,null 只是针对单元格来说的. count 不会统计 null 的单元格
+
 
 from score s
 group by stu_id

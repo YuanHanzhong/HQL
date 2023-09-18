@@ -605,7 +605,7 @@ group by stu_id
 select *
 from course c;
 
--- 2022/10/19 15:02 NOTE 这里有点bug, 只能人工写以下课程序号, 不能直接用='语文'来筛选
+-- 2022/10/19 15:02  这里有点bug, 只能人工写以下课程序号, 不能直接用='语文'来筛选
 select
     stu_id        as `学生ID`
   , (
@@ -1850,7 +1850,7 @@ where
         col_course_id in
         -- in的本质就是挑出完全相等的 NOTE
         (
-            -- 001 所选课的集合 NOTE
+            -- 001 所选课的集合
             -- 集合的本质, 就是不考虑顺序和去重 NOTE
             select collect_set( course_id )
             from score s
@@ -2090,7 +2090,7 @@ from (
          -- 先筛选, 再 join, 高效
      join student s2 on top2.stu_id = s2.stu_id
 ;
--- NOTE 开窗函数, 缺少参数的时候, 报错 Failed to breakup Windowing invocations
+-- NOTE 开窗函数, 缺少参数的时候, 报错  breakup Windowing
 -- rank一定和 orderby 连用, NOTE
 -- collect 一定和partition 连用, NOTE
 
@@ -2166,6 +2166,7 @@ where
 
 
 -- 高级题
+select * from order_summary;
 DROP TABLE IF EXISTS order_summary;
 CREATE TABLE order_summary
 (
@@ -2200,7 +2201,7 @@ VALUES
 
 
 
--- 2022/11/2 14:40 STAR     好习惯
+-- 2022/11/2 14:40      好习惯
 /*
 建表
     见名知意
@@ -2218,6 +2219,8 @@ VALUES
 
 
 -- SQL1 计算销量第二的商品
+
+
 
 select *, dense_rank( ) over (partition by id order by sum) as rk
 from order_summary os
@@ -2525,8 +2528,6 @@ group by user_id
 ;
 
 
--- 2022/11/4 11:16  note 想要除, 用2个select
--- -- 2022/11/4 11:21 P1 我错在哪里了
 select
         (
             select count( * )
@@ -2585,7 +2586,6 @@ select
 
 -- SQL6 每个销售产品第一年的销售数量、销售年份、销售总额
 -- 6.1 题目需求
--- 下表中每行代表一次销售事实，请计算出每个商品的第一年的销售数量，销售年份和销售总额 star
 
 DROP TABLE IF EXISTS order_detail;
 CREATE TABLE order_detail
@@ -2634,7 +2634,6 @@ select
 from (
          select
              *
-             -- 2022/11/7 9:56 star, order by这里很关键
            , rank( ) over (partition by id order by year( sale_date )) as rk
          from order_detail od
      ) tt
@@ -2692,7 +2691,6 @@ from product_attr pa
 
 -- 2022/11/7 10:23 使用explain查看计划, 显示为json格式
 
--- 2022/11/7 10:13 NOTE 容易想到, 但是效率不高
 explain extended
 select od.id, pa.name, sum( num ) as `总销量`
 from order_detail      od
@@ -2708,9 +2706,9 @@ having
 ;
 
 
--- 2022/11/9 14:49 note 日期加减
 select date_sub( '2022-01-10', -3 )
 ;
+
 
 
 -- 2022/11/7 10:08 答案

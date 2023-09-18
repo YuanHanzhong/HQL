@@ -1656,18 +1656,23 @@ group by user_id
 -- 104
 -- 107
 
+
+-- NOTE 尽量不适用 join,因为他的效率很低.
+
 select distinct uld.user_id
 from user_login_detail      uld
      join user_login_detail uld2
               -- 通过主键关联是最基本的一步
      on uld.user_id = uld2.user_id
+         -- 确保不是一行
+         and uld.login_ts != uld2.login_ts
          -- 关联条件
          and uld.login_ts < uld2.logout_ts
          and uld.logout_ts > uld2.login_ts
          and uld.ip_address != uld2.ip_address;
 
 
-select *
+select distinct user_id
 from (
          
          select *, `if`( max_logout is null, 2, `if`( max_logout > login_ts, 1, 0 ) ) as flag
@@ -1690,6 +1695,52 @@ where
 
 ;
 
+-- 好用的
+select distinct user_id
+from (
+         select
+             user_id
+           , login_ts
+           , max( logout_ts )
+                  over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as max_logout
+         from user_login_detail
+     ) t1
+where
+    max_logout > login_ts
+;
+
+--  NOTE null不能用来比较打下, 比较的话, 结果仍然为 null
+
+
+select null < 1;
+
+-- 参考答案, 比较通用, P1
+
+select
+    *
+    --     distinct     t2.user_id
+from (
+         select
+             t1.user_id
+           , login_ts
+           , logout_ts
+           , max_logout
+             -- NOTE 用 if 打标签, 很经典
+             -- if嵌套是有顺序的, 和直接拿出某个数来还不一样
+           , if( t1.max_logout is null, 2, if( t1.max_logout < t1.login_ts, 1, 0 ) ) as flag
+         from (
+                  select
+                      user_id
+                    , login_ts
+                    , logout_ts
+                    , max( logout_ts )
+                           over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as max_logout
+                  from user_login_detail
+              ) t1
+     ) t2
+where
+    t2.flag = 0
+;
 
 -- 参考 GPT
 SELECT DISTINCT a.user_id
@@ -3046,18 +3097,18 @@ from (
 
 
 select *
- from user_login_detail uld1 join user_login_detail uld2
-on (
-    uld1.user_id = uld2.user_id
-    -- NOTE 很有必要, 不自连接.
-    and uld1.login_ts != uld2.login_ts
-    and uld1.login_ts < uld2.logout_ts
-    and uld1.logout_ts > uld2.login_ts
-    )
+from user_login_detail uld1 join user_login_detail uld2
+                            on (
+                                        uld1.user_id = uld2.user_id
+                                    -- NOTE 很有必要, 不自连接.
+                                    and uld1.login_ts != uld2.login_ts
+                                    and uld1.login_ts < uld2.logout_ts
+                                    and uld1.logout_ts > uld2.login_ts
+                                )
 
 
 -- 找出所有的有重合的, 并合并
-select uld1.user_id,min(uld1.login_ts) unique_login_ts,max(uld1.logout_ts) unique_logout_ts
+select uld1.user_id, min( uld1.login_ts ) as unique_login_ts, max( uld1.logout_ts ) as unique_logout_ts
 from user_login_detail uld1 join user_login_detail uld2
                             on (
                                         uld1.user_id = uld2.user_id
@@ -3081,24 +3132,24 @@ from user_login_detail uld1 left join user_login_detail uld2
                                     and uld1.login_ts < uld2.logout_ts
                                     and uld1.logout_ts > uld2.login_ts
                                 )
-where uld2.user_id is null
-
-
+where
+    uld2.user_id is null
 ;
 
 
 -- NOTE 使用 EXIST 实现没有重叠
 select *
 from user_login_detail uld1
-where not exists (
-    select 1
-    from user_login_detail uld2
-    where uld1.user_id=uld2.user_id
-    and uld1.login_ts!=uld2.login_ts
-    and uld1.login_ts<uld2.logout_ts
-    and uld1.logout_ts>uld2.login_ts
-    )
-
+where
+    not exists (
+                   select 1
+                   from user_login_detail uld2
+                   where
+                         uld1.user_id = uld2.user_id
+                     and uld1.login_ts != uld2.login_ts
+                     and uld1.login_ts < uld2.logout_ts
+                     and uld1.logout_ts > uld2.login_ts
+               )
 
 
 
@@ -3213,3 +3264,209 @@ from (
                   from user_login_detail
               ) t1
      ) t2
+
+
+
+-- 第1题 同时在线人数问题
+-- 1.1 题目需求
+-- 现有各直播间的用户访问记录表（live_events）如下，表中每行数据表达的信息为，一个用户何时进入了一个直播间，又在何时离开了该直播间。
+-- user_id
+-- (用户id)	live_id
+-- (直播间id)	in_datetime
+-- (进入直播间的时间)	out_datetime
+-- (离开直播间的时间)
+-- 100	1	2021-12-1 19:30:00	2021-12-1 19:53:00
+-- 100	2	2021-12-1 21:01:00	2021-12-1 22:00:00
+-- 101	1	2021-12-1 19:05:00	2021-12-1 20:55:00
+-- 现要求统计各直播间最大同时在线人数，期望结果如下：
+-- live_id	max_user_count
+-- 1	4
+-- 2	3
+
+select live_id, max( sum_flag )
+from (
+         select *, sum( flag ) over (partition by live_id order by ts) as sum_flag
+         from (
+                  select user_id, live_id, ts, flag
+                  from (
+                           select user_id, live_id, in_datetime as ts, 1 as flag
+                           from live_events le
+                           union all
+                           select user_id, live_id, out_datetime as ts, -1 as flag
+                           from live_events le
+                       ) t1
+              ) t2
+     ) t3
+group by live_id
+;
+
+-- 第2题 会话划分问题
+-- 2.1 题目需求
+-- 现有页面浏览记录表（page_view_events）如下，表中有每个用户的每次页面访问记录。
+select
+    user_id
+  , page_id
+  , view_timestamp
+  , concat( user_id, '-', flag ) as session
+from (
+         
+         select
+             user_id
+           , page_id
+           , view_timestamp
+           , sum( `if`( diff_timestamp > 60, 1, 0 ) ) over (partition by user_id order by view_timestamp) as flag
+         from (
+                  select
+                      user_id
+                    , page_id
+                    , view_timestamp
+                    , view_timestamp - lag( view_timestamp, 1, view_timestamp )
+                                            over (partition by user_id order by view_timestamp) as diff_timestamp
+                  
+                  from page_view_events pve
+              ) t1
+     ) t12
+;
+
+
+-- 第3题 间断连续登录用户问题
+-- 3.1 题目需求
+-- 现有各用户的登录记录表（login_events）如下，表中每行数据表达的信息是一个用户何时登录了平台。
+-- user_id	login_datetime
+-- 100	2021-12-01 19:00:00
+-- 100	2021-12-01 19:30:00
+-- 100	2021-12-02 21:01:00
+-- 现要求统计各用户最长的连续登录天数，间断一天也算作连续，例如：一个用户在1,3,5,6登录，则视为连续6天登录。期望结果如下：
+-- user_id	max_day_count
+-- 100	3
+-- 101	6
+-- 102	3
+
+select user_id, max( sum_flag )
+from (
+         select
+             *
+           , sum( `if`( flag = 1 or flag = 2, 1, 0 ) )
+                  over (partition by user_id order by date_login_time) as sum_flag
+         from (
+                  select
+                      user_id
+                    , date_login_time
+                      --   , row_number( ) over (partition by user_id order by date_login_time)
+                    , lag( date_login_time, 1, date_login_time ) over (partition by user_id order by date_login_time)
+                    , datediff( date_login_time,
+                                lag( date_login_time, 1, date_login_time )
+                                     over (partition by user_id order by date_login_time)
+                          ) as flag
+                  from (
+                           select distinct user_id, date( login_datetime ) as date_login_time
+                           from login_events le
+                       ) t1
+              ) t12
+     ) t123
+group by user_id
+-- where flag=1 or flag=2
+;
+
+-- 核对
+select
+    user_id
+  , max( recent_days ) as max_recent_days --求出每个用户最大的连续天数
+from (
+         select
+             user_id
+           , user_flag
+           , datediff( max( login_date ), min( login_date ) ) + 1 as recent_days --按照分组求每个用户每次连续的天数(记得加1)
+         from (
+                  select
+                      user_id
+                    , login_date
+                    , lag1_date
+                    , concat( user_id, '_', flag ) as user_flag --拼接用户和标签分组
+                  from (
+                           select
+                               user_id
+                             , login_date
+                             , lag1_date
+                             , sum( if( datediff( login_date, lag1_date ) > 2, 1, 0 ) )
+                                    over (partition by user_id order by login_date) as flag --获取大于2的标签
+                           from (
+                                    select
+                                        user_id
+                                      , login_date
+                                      , lag( login_date, 1, '1970-01-01' )
+                                             over (partition by user_id order by login_date) as lag1_date --获取上一次登录日期
+                                    from (
+                                             select
+                                                 user_id
+                                               , date_format( login_datetime, 'yyyy-MM-dd' ) as login_date
+                                             from login_events
+                                             group by user_id, date_format( login_datetime, 'yyyy-MM-dd' ) --按照用户和日期去重
+                                         ) t1
+                                ) t2
+                       ) t3
+              ) t4
+         group by user_id, user_flag
+     ) t5
+group by user_id;
+
+
+-- 第4题 日期交叉问题
+-- 4.1 题目需求
+-- 现有各品牌优惠周期表（promotion_info）如下，其记录了每个品牌的每个优惠活动的周期，其中同一品牌的不同优惠活动的周期可能会有交叉。
+-- promotion_id	brand	start_date	end_date
+-- 1	oppo	2021-06-05	2021-06-09
+-- 2	oppo	2021-06-11	2021-06-21
+-- 3	vivo	2021-06-05	2021-06-15
+-- 现要求统计每个品牌的优惠总天数，若某个品牌在同一天有多个优惠活动，则只按一天计算。期望结果如下：
+-- brand	promotion_day_count
+-- vivo	17
+-- oppo	16
+-- redmi	22
+-- huawei	22
+
+select pi1.brand, min( pi1.start_date ), max( pi1.end_date )
+from promotion_info pi1 join promotion_info pi2
+                        on pi1.promotion_id != pi2.promotion_id
+                            and pi1.start_date < pi2.end_date
+                            and pi1.end_date > pi2.start_date
+                            and pi1.brand = pi2.brand
+group by pi1.brand
+
+
+-- 去掉重合的. 使用 join 或者 exist 的方式, 只能确认是不是有过重合, 具体的数量很难计算.
+select *
+from promotion_info pi1 join promotion_info pi2
+                        on pi1.promotion_id != pi2.promotion_id
+                            and pi1.start_date < pi2.end_date
+                            and pi1.end_date > pi2.start_date
+                            and pi1.brand = pi2.brand
+;
+
+-- 参考
+select
+    brand
+  , sum( datediff( end_date, start_date ) + 1 ) as promotion_day_count
+from (
+         select
+             brand
+           , max_end_date
+              -- NOTE 使用 if, 很经典的判断
+              -- 一发入魂, 不用迭代地去解决了
+           , if( max_end_date is null or start_date > max_end_date, start_date,
+                 date_add( max_end_date, 1 ) ) as start_date -- 这里采用了重合时, 就往后调整起始日期.
+              -- NOTE 老老实实把原始数据弄出来, 最省力.
+           , end_date
+         from (
+                  select
+                      brand
+                    , start_date
+                    , end_date
+                    , max( end_date )
+                           over (partition by brand order by start_date rows between unbounded preceding and 1 preceding) as max_end_date
+                  from promotion_info
+              ) t1
+     ) t2
+where
+    end_date > start_date
+group by brand;

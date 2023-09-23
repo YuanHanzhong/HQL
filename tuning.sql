@@ -48,7 +48,7 @@ create table province_info
 load data local inpath '/opt/data/province_info.txt' overwrite into table province_info;
 
 
--- map端优化 STAR
+-- map端优化
 --启用map-side聚合, 这里打开之后，后续会根据设置自动启用map端聚合。
 -- 启用后，有可能OOM, 对集群资源要求比较高。不启用则一定能出结果。
 set hive.map.aggr=true;

@@ -1,8 +1,44 @@
+-- 连续登录, 间隔 1 天也算
+-- 第3题 间断连续登录用户问题
+-- 3.1 题目需求
+-- 现有各用户的登录记录表（login_events）如下，表中每行数据表达的信息是一个用户何时登录了平台。
+-- user_id	login_datetime
+-- 100	2021-12-01 19:00:00
+-- 100	2021-12-01 19:30:00
+-- 100	2021-12-02 21:01:00
+-- 现要求统计各用户最长的连续登录天数，间断一天也算作连续，例如：一个用户在1,3,5,6登录，则视为连续6天登录。
+-- 期望结果如下：
+-- user_id	max_day_count
+-- 100	3
+-- 101	6
+-- 102	3
+
+
+select user_id, date_login, row_number( ) over (partition by user_id order by date_login)
+from (
+         select distinct user_id, date( login_datetime ) as date_login
+         from login_events
+     ) t1
+
+
 -- 2.1 查询累积销量排名第二的商品
+select *
+from (
+         select sku_id, sum_sku_num, dense_rank( ) over (order by sum_sku_num desc) as drk
+         from (
+                  select sku_id, sum( sku_num ) as sum_sku_num
+                  from order_detail od
+                  group by sku_id
+              ) t1
+     ) t2
+where
+    drk = 2;
+
+
 -- 累计销量
 select sku_id, amount_sku, dense_rank_amount_sku
 from (
-         -- NOTE order by可以多项, 排名的话常常跟着 desc
+         -- order by, partition by 都可以多项, 排名的话常常跟着 desc
          select sku_id, amount_sku, dense_rank( ) over (order by amount_sku desc) as dense_rank_amount_sku
          from (
                   select sku_id, sum( sku_num ) as amount_sku
@@ -11,7 +47,10 @@ from (
               ) t1
      ) t2
 where
-    dense_rank_amount_sku = 2;
+    dense_rank_amount_sku = 2
+;
+
+
 
 select sku_id
 from (
@@ -29,7 +68,7 @@ where
     dense_rank_sku_num = 2
 ;
 -- 2.2 [课堂讲解]查询至少连续三天下单的用户
--- NOTE 以后就用 row_number
+--  以后就用 row_number
 
 -- 2023年09月06日21:48:46 如果使用 dense_rank 是不是就不用去重了?
 -- 不去重的话, 用 rank 就一点也不对了. 用 dense_rank 还对一点.
@@ -82,13 +121,13 @@ from (
          select user_id, create_date, row_number, date_sub( create_date, row_number ) as flag
          from (
                   
-                  -- NOTE 最保险的排序就是在开窗函数里, partition by order by都要用
+                  -- 最保险的排序就是在开窗函数里, partition by order by都要用
                   select
                       user_id
                     , create_date
                     , row_number( ) over (partition by user_id order by create_date) as row_number
                   from (
-                           -- NOTE 连续登录, 首先要考虑去重.
+                           --  连续登录, 首先要考虑去重.
                            select user_id, create_date
                            from order_info oi
                            group by user_id, create_date
@@ -109,8 +148,8 @@ having
 -- 不一定是连续的,
 
 -- 使用 lag 的第二种方式 , 和另外 2 种方式有本质区别
--- 开窗并不会去重  NOTE
--- 开窗一般写上 partition by order by, 程序健壮 NOTE
+-- 开窗并不会去重
+-- 开窗一般写上 partition by order by, 程序健壮
 select user_id, create_date, datediff( create_date, lag_create_date_3 ) as flag
 from (
          select
@@ -127,12 +166,12 @@ where
     -- lag 3, 一定得等于 3
     datediff( create_date, lag_create_date_3 ) = 3;
 
--- lag(字段) NOTE
+-- lag(字段)
 -- 开窗函数不能直接放在 where 条件里, 聚合函数可以, 并且放在 having
 
 select user_id, count( flag )
 from (
-         -- 涉及到日期的时候很特殊, 要用函数, 并且注意格式 NOTE
+         -- 涉及到日期的时候很特殊, 要用函数, 并且注意格式
          select user_id, create_date, lag_create_date, datediff( create_date, lag_create_date ) as flag
          from (
                   select
@@ -158,7 +197,7 @@ having
 
 
 -- 思路 1: 使用lag, 再用 where确定唯一的一个
--- 连续问题, 先去重 NOTE
+-- 连续问题, 先去重
 
 select user_id, datediff( create_date, lag_date )
 from (
@@ -201,7 +240,7 @@ from (
            , date_sub( create_date, rank( ) over (partition by user_id order by create_date) ) as flag
              -- 开窗中的 partition 和给的数据中是否 partition 过没有关系
          from (
-                  -- 连续问题, 先去重 NOTE
+                  -- 连续问题, 先去重
                   select user_id, create_date
                   from order_info oi
                   group by user_id, create_date
@@ -221,7 +260,7 @@ from (
          select
              user_id
            , create_date
-             -- 直接开窗比 lag lead 好用很多 NOTE
+             -- 直接开窗比 lag lead 好用很多
            , date_sub( create_date, row_number( ) over (partition by user_id order by create_date) ) as flag
          from (
                   select
@@ -230,10 +269,10 @@ from (
                   from order_info
                   group by user_id, create_date
               ) one_date_per_user_table
-     ) t2 -- 判断一串日期是否连续：若连续，用这个日期减去它的排名，会得到一个相同的结果 NOTE
+     ) t2 -- 判断一串日期是否连续：若连续，用这个日期减去它的排名，会得到一个相同的结果
 group by user_id
-         -- group by 的为必要出现在 select里面, 只是借助它进行了筛选 NOTE
-         -- 在 SELECT 子句中，除了聚合函数，只能使用出现在 GROUP BY 子句中的字段。NOTE
+         -- group by 的为必要出现在 select里面, 只是借助它进行了筛选
+         -- 在 SELECT 子句中，除了聚合函数，只能使用出现在 GROUP BY 子句中的字段。
 having
     -- 这一步筛选用的很巧妙
     count( flag ) >= 3 -- 连续下单大于等于三天
@@ -284,218 +323,76 @@ from (
      ) t1
 ;
 
--- 2.5 查询首次下单后第二天连续下单的用户比率 STAR
-
--- NOTE group by , partition by决定了计算范围
-select
-        sum( `if`( datediff( second_borrow_date, first_borrow_date ) = 1, 1, 0 ) ) * 100.0 as amount_firstday
-  ,     sum( `if`( datediff( second_borrow_date, first_borrow_date ) != 1, 1, 0 ) )        as amount_secondday
+-- 2.5 查询首次下单后第二天连续下单的用户比率 STAR STAR
+select sum( `if`( cn = 2, 1, 0 ) ) * 100.0, sum( if( cn = 1 or cn = 2, 1, 0 ) )
 from (
-         select
-             user_id
-           , min( create_date ) over (partition by user_id order by create_date) as first_borrow_date
-           , max( create_date ) over (partition by user_id order by create_date) as second_borrow_date
-         from (
-                  select
-                      user_id
-                    , create_date
-                    , row_number( ) over (partition by user_id order by create_date) as row_number_flag
-                  from (
-                           select distinct user_id, create_date
-                           from order_info oi
-                       ) t1
-              ) t2
-         where
-             row_number_flag <= 2
-     ) t3
-;
-
-
-select user_id, first_day, second_day
-from (
-         select
-             user_id
-           , create_date                                                            as first_day
-           , lag( create_date, 1 ) over (partition by user_id order by create_date) as second_day
-         from (
-                  select distinct
-                      user_id
-                    , create_date
-                    , row_number( ) over (partition by user_id order by create_date) as flag
-                  
-                  from order_info oi
-              ) t1
-         where
-             flag <= 2
-     ) t2
-where
-    datediff( first_day, second_day ) = 1
-;
-
-
--- 欠妥, 没有考虑到重复的下单
-select
-    sum( `if`( datediff( lag_date, create_date ) = -1, 1, 0 ) )
-    -- NOTE lag的要更小, 因为往后移动了
-    -- NOTE 要想不重不漏就是用等于和不等于某个数字, 而不是非得等于某些数字
-  , sum( `if`( datediff( lag_date, create_date ) != -1, 1, 0 ) )
-    -- ,
-    --     datediff(create_date,lag_date)
-from (
-         select
-             user_id
-           , create_date
-           , rank_create_date
-           , lag( create_date, 1, create_date ) over
-             (partition by user_id order by create_date) as lag_date
-         from (
-                  select
-                      user_id
-                    , create_date
-                    , rank( ) over (partition by user_id order by create_date) as rank_create_date
-                  from (
-                           
-                           select distinct user_id, create_date
-                           from order_info oi
-                       ) t1
-              ) t2
-         where
-             -- 这里直接 rank 还不行, 不能解决不连续的情况
-             rank_create_date <= 2
-     ) t3
-;
-
-
-
--- 参考
--- 这个方法不对, 不应该 count(*), 而是应该用等于 1 和不等于 1 来区分, 因为算的是用户的比例, 而非下单次数的比例
-select
-    -- 所有的 where 里面的判断都可以放到 if 里面去判断 NOTE
-    sum( if( datediff( buy_date_second, buy_date_first ) = 1, 1, 0 ) ) * 100.0
-  , sum( if( datediff( buy_date_second, buy_date_first ) != 1, 1, 0 ) )
-    --                     / count( * ) * 100
-
-from (
+         -- NOTE 连续, 一定是有 count 这个步骤的, 不管是使用 lag, 还是使用row_number()
          
-         select
-             user_id
-           , rk
-           , min( create_date ) over (partition by user_id order by create_date) as buy_date_first
-           , max( create_date ) over (partition by user_id order by create_date) as buy_date_second
-           , datediff(
-                 max( create_date ) over (partition by user_id order by create_date),
-                 min( create_date ) over (partition by user_id order by create_date)
-                 )                                                               as flag
+         select user_id, flag, count( flag ) as cn
          from (
-                  -- 添加排序列, 目的就是筛选出首次和第二次
-                  select
-                      user_id
-                    , create_date
-                    , rank( ) over (partition by user_id order by create_date) as rk
+                  select user_id, create_date, rn, date_sub( create_date, rn ) as flag
                   from (
-                           -- 去重
                            select
                                user_id
                              , create_date
-                           from order_info
-                           group by user_id, create_date
-                       ) t1
-              ) t2
-         where
-             -- 先筛选, 再聚合, 效率还可以
-             rk <= 2
-     ) t3;
--- 没有 count if 这个用法 NOTE
-select sum( `if`( rank_create_date = 2, 1, 0 ) ) * 100.0 / count( * )
-from (
-         select user_id, create_date, rank_create_date
-         from (
-                  select
-                      user_id
-                    , create_date
-                      
-                      -- 仅仅用 rank 不能保证连续, 再借 flag, 再减, 再 count 才算连续
-                    , rank( ) over (partition by user_id order by create_date) as rank_create_date
-                  from (
-                           -- 去重日期
-                           select distinct user_id, create_date
-                           from order_info oi
-                       ) t1
-              ) t2
-         where
-             rank_create_date <= 2
-     ) t3
-;
--- sum(if()) 这个组合真的好用 NOTE
-
--- 2023年08月30日19:22:54 使用 rank 的方式
-
--- 如何直接把select count的数拿出来计算?
-
--- 首次下单,第二天还下单的用户数
-select count( user_id )
-from (
-         select user_id, flag, count( * )
-         from (
-                  
-                  select *, date_sub( create_date, rk ) as flag
-                  from (
-                           select *, rank( ) over (partition by user_id order by create_date) as rk
-                           
+                             , row_number( ) over (partition by user_id order by create_date) as rn
                            from (
-                                    select user_id, create_date
+                                    select distinct user_id, create_date
                                     from order_info oi
-                                    group by user_id, create_date
-                                ) kill_duplicate_table
-                       ) add_rank_talbe
+                                
+                                ) init_table
+                       ) tag_table
                   where
-                      rk <= 2
+                      rn in ( 1, 2 )
               ) flag_table
          group by user_id, flag
-         having
-             count( * ) = 2
-         order by user_id, flag
-     ) flag_is_2_table
+     ) count_table
 ;
 
--- 2023年08月30日19:01:52 可以看出模式来, 但是很难匹配成功
-select *, count( ) over (partition by user_id order by create_date )
+
+
+-- 打标记
+select
 from (
-         -- NOTE 使用 lag 就不好过滤了, 使用 rank 更好地筛选过滤
-         select user_id, create_date, lag( create_date, 1 ) over (partition by user_id order by create_date)
-         from order_info oi
-         group by user_id, create_date
-     ) t1
-;
-
--- 用户总数
-select count( user_id ) as count_user
-from order_info oi;
-
-
---  拿到总的用户数
-select count( distinct user_id )
-from (
-         -- 这里思路错了, 不是连续下单的用户比例, 而是首次, 一个用户只有一次
          select
              user_id
            , create_date
-           , lag( create_date, 1 ) over (partition by user_id order by create_date) as lag_one_day
-           , rank( ) over (partition by user_id order by create_date)               as rank_create_date
-         from order_info oi
-              -- group by 主要作用就是去重
-         group by user_id, create_date
-                -- 没有分层级, 搞乱了
-         having
-             rank_create_date <= 2
-     ) tq
+           , row_number( ) over (partition by user_id order by create_date) as rn
+         
+         from (
+                  -- 基础数据
+                  select distinct user_id, create_date
+                  from order_info oi
+              ) init_table
+     ) flag_table
 where
-    datediff( create_date, lag_one_day ) = 1
+    rn in ( 1, 2 )
+
+
+-- 做统计
+select
+    sum( if( rn = 2 and datediff( create_date, lag_1_create_date ) = 1, 1, 0 ) )
+  , sum( `if`( rn = 1, 1, 0 ) )
+from (
+         -- 打标记
+         select
+             user_id
+           , create_date
+           , row_number( ) over (partition by user_id order by create_date)         as rn
+           , lag( create_date, 1 ) over (partition by user_id order by create_date) as lag_1_create_date
+         
+         from (
+                  -- 基础数据
+                  select distinct user_id, create_date
+                  from order_info oi
+              ) t1
+     ) t3
+where
+    -- 注意把后面无关的去掉, 时时刻刻精简着数据
+    rn in ( 1, 2 )
 ;
 
 
--- 我的为什么那么复杂, 人家的为什么那么简单, 差在哪里了
---      基础数据, 人家一次搞定, 我弄了好几轮
 -- 2.6 每个商品销售首年的年份、销售数量和销售金额
 
 -- 1	2021	51	102000.00
@@ -578,7 +475,7 @@ group by sku_id, year( create_date )
 
 
 desc order_detail;
--- 永远都是首选聚合函数 NOTE
+-- 永远都是首选聚合函数
 select sku_id, sum( sku_num )
 from order_detail od
 where
@@ -753,7 +650,94 @@ having
     sum_sku_num > avg_sku_num
 
 
--- 2.11 用户注册、登录、下单综合统计 STAR
+-- 2.11 用户注册、登录、下单综合统计 STAR STAR
+-- 2.11.1 题目需求
+-- 从用户登录明细表（user_login_detail）和订单信息表（order_info）中查询每个用户的注册日期（首次登录日期）
+-- 总登录次数以及其在2021年的登录次数、订单数和订单总额。期望结果如下：
+-- user_id
+
+-- 101	2021-09-21	5	5	4	143660.00
+-- 102	2021-09-22	4	4	4	177850.00
+-- 103	2021-09-23	2	2	4	75890.00
+
+
+select
+    t1.user_id
+  , first_login_date
+  , amount_login_times
+  , amount_login_times_2021
+  , amount_order_times_2021
+  , total_amount_2021
+from (
+         select
+             user_id
+           , min( date( login_ts ) )                      as first_login_date
+           , count( login_ts )                            as amount_login_times
+           , sum( `if`( year( login_ts ) = 2021, 1, 0 ) ) as amount_login_times_2021
+         from user_login_detail uld
+         group by user_id
+     ) t1 left join (
+                        select
+                            user_id
+                          , count( create_date ) as amount_order_times_2021
+                          , sum( total_amount )  as total_amount_2021
+                        from order_info oi
+                        where
+                            year( create_date ) = 2021
+                        group by user_id
+                    ) t2
+          on t1.user_id = t2.user_id
+
+
+-- 2023年09月21日15:12:57
+select
+    user_id
+  , min( date( login_ts ) )                                  as first_login_date
+  , count( * )                                               as amount_login_times
+  , sum( if( year( login_ts ) = 2021, 1, 0 ) )               as amount_login_times_2021
+  , sum( if( year( create_date ) = 2021, 1, 0 ) )            as amount_order_times_2021
+    -- NOTE NOTE join之后,表的行数会变化, count 就不准了. 把数据先收齐并不一定是个好方式, 尤其和 count, sum不兼容.
+  , sum( if( year( create_date ) = 2021, total_amount, 0 ) ) as total_amount_2021
+from user_login_detail uld join order_info oi on oi.user_id = uld.user_id
+group by uld.user_id
+;
+
+
+-- 参考
+select
+    login.user_id
+  , register_date
+  , total_login_count
+  , login_count_2021
+  , order_count_2021
+  , order_amount_2021
+from (
+         select
+             user_id
+           , min( login_ts )                                   as register_date
+           , count( 1 )                                        as total_login_count
+           , count( if( year( login_ts ) = '2021', 1, null ) ) as login_count_2021
+         from user_login_detail
+         group by user_id
+     ) login
+     join
+     (
+         select
+             user_id
+           , count( order_id )   as order_count_2021
+           , sum( total_amount ) as order_amount_2021
+         from order_info
+         where
+             year( create_date ) = '2021'
+         group by user_id
+     ) oi
+     on login.user_id = oi.user_id;
+
+select *
+from user_login_detail uld join order_info oi on oi.user_id = uld.user_id
+;
+
+
 
 select t1.user_id, count_login_times, count_order_date
 from (
@@ -820,7 +804,7 @@ from order_info oi
 select
     user_id
   , register_date
-    -- 开窗不能课 group 一起用 NOTE
+    -- 开窗不能课 group 一起用
   , count( login_ts )      as login_count_2021
   , sum( sku_num )         as order_count_2021
   , sum( sku_num * price ) as order_amount_2021
@@ -832,7 +816,7 @@ from (
            , price
            , min( login_ts ) over (partition by oi.user_id order by login_ts) as register_date
              
-             -- NOTE 必须要先计算, 再关联
+             -- 必须要先计算, 再关联
            , count( 1 ) over (partition by oi.user_id)                        as total_login_count
          from user_login_detail uld join order_info oi on oi.user_id = uld.user_id
                                     join order_detail od on od.create_date = oi.create_date
@@ -841,39 +825,6 @@ where
     year( login_ts ) = '2021'
 group by user_id, register_date, total_login_count
 ;
-
--- 参考
-select
-    login.user_id
-  , register_date
-  , total_login_count
-  , login_count_2021
-  , order_count_2021
-  , order_amount_2021
-from (
-         select
-             user_id
-           , min( login_ts )                                   as register_date
-           , count( 1 )                                        as total_login_count
-           , count( if( year( login_ts ) = '2021', 1, null ) ) as login_count_2021
-         from user_login_detail
-         group by user_id
-     ) login
-     join
-     (
-         select
-             user_id
-           , count( order_id )   as order_count_2021
-           , sum( total_amount ) as order_amount_2021
-         from order_info
-         where
-             year( create_date ) = '2021'
-         group by user_id
-     ) oi
-     on login.user_id = oi.user_id;
-
-select *
-from user_login_detail uld join order_info oi on oi.user_id = uld.user_id
 
 
 -- 2023年09月02日17:01:28
@@ -892,7 +843,7 @@ from (
                   from user_login_detail uld
               ) t1
          group by user_id
-         -- NOTE left join
+         --  left join
      ) t2 left join
      (
          select
@@ -964,7 +915,7 @@ from sku_info
                     , new_price
                     , change_date
                       -- row_number也可以排序, 并不是 row_number就不用排序
-                      -- NOTE row_number肯定是单调递增的
+                      --  row_number肯定是单调递增的
                       -- ,
                     , row_number( ) over (partition by sku_id order by change_date desc) as rn
                   from sku_price_modify_detail
@@ -994,7 +945,7 @@ select
     -- 判断日期, 用 datediff 是个好习惯
     sum( `if`( order_date = custom_date, 1, 0 ) )
   , count( order_date )
-    -- count的时候写具体一点比较好 NOTE
+    -- count的时候写具体一点比较好
 from (
          select
              user_id
@@ -1027,23 +978,123 @@ from (
 where
     rn = 1;
 
---,2.14 向用户推荐朋友收藏的商品 想不清楚, 再思考 STAR
+--,2.14 向用户推荐朋友收藏的商品 想不清楚, 再思考
 -- 2.14.1
 -- 题目需求
 -- 现需要请向所有用户推荐其朋友收藏但是用户自己未收藏的商品，请从好友关系表（friendship_info
 -- ）和收藏表（favor_info
 -- ）中查询出应向哪位用户推荐哪些商品。期望结果如下：
--- 1
--- ）部分结果展示
 -- 101	2
 -- 101	4
 -- 101	7
--- 101	9
--- 101	8
--- 101	11
--- 101	1
 
--- NOTE 就这一次, 只为那瞬间精彩
+select self, friend, favor_info_friend.sku_id
+from (
+         select user1_id as self, user2_id as friend
+         from friendship_info fi
+         union
+         select user2_id as self, user1_id as friend
+         from friendship_info f
+     )                    init_table
+     join      favor_info favor_info_friend
+     on friend = favor_info_friend.user_id
+     left join favor_info favor_info_self
+     on init_table.self = favor_info_self.user_id and favor_info_friend.sku_id = favor_info_self.sku_id
+where
+    favor_info_self.user_id is null
+
+
+
+-- 2023年09月20日19:30:23 方法 1: 使用 left join is null 实现
+--  首选 left join, left join更好理解, 注意起好别名
+select friend_all.self_id, favor_info_friend.sku_id, *
+from (
+         -- 实际环境中, 不用 union. 要不然百万大 V 的推荐就太多了
+         select user1_id as self_id, user2_id as friend_id
+         from friendship_info fi
+         union
+         select user2_id as self_id, user1_id as friend_id
+         from friendship_info f
+     )                    friend_all
+         --  join 要取别名,用的时候好用. 取别名区分高手和菜鸟
+     left join favor_info favor_info_friend
+     on friend_all.friend_id = favor_info_friend.user_id
+                   
+                   -- 再次 join 是为了去掉那些自己已经收藏的
+     left join favor_info favor_info_self
+     on friend_all.self_id = favor_info_self.user_id
+         -- 此处必须是相同, 不喜欢的可就太多了,跟两者没有关系了
+         and favor_info_friend.sku_id = favor_info_self.sku_id
+where
+    -- is null 本身就代表否定
+    favor_info_self.user_id is null;
+
+
+-- 2023年09月20日19:30:55
+-- 方法 2: 事实 exist 实现, 效率更高
+select distinct user_id, sku_id
+from (
+         -- 实际环境中, 不用 union. 要不然百万大 V 的推荐就太多了
+         select user1_id as self_id, user2_id as friend_id
+         from friendship_info fi
+         union
+         select user2_id as self_id, user1_id as friend_id
+         from friendship_info f
+     )               friendship_info_all
+     join favor_info favor_info_friend on friendship_info_all.friend_id = favor_info_friend.user_id
+     --  where 后面是个条件, 选择是不是要的条件
+where
+    not exists (
+                   select 1
+                   from favor_info favor_info_self
+                   where
+                         favor_info_self.user_id = friendship_info_all.self_id
+                     and favor_info_self.sku_id = favor_info_friend.sku_id
+               )
+;
+
+
+
+select *
+from favor_info fi
+
+
+-- GPT
+SELECT
+    f.user_id
+  , fav.product_id
+FROM friendship_info f
+     JOIN
+     favor_info      fav ON f.friend_id = fav.user_id
+     LEFT JOIN
+     favor_info      u_fav ON f.user_id = u_fav.user_id AND fav.product_id = u_fav.product_id
+WHERE
+    u_fav.product_id IS NULL
+ORDER BY f.user_id, fav.product_id;
+
+
+select distinct
+    t1.user1_id AS user_id
+  , i.sku_id
+from (
+         select user1_id, user2_id
+         from friendship_info fi
+         union
+         select user2_id, user1_id
+         from friendship_info f
+     )                    t1
+     left join favor_info i
+     on t1.user2_id = i.user_id
+where
+    not exists (
+                   select 1
+                   from favor_info self_favor
+                   where
+                         self_favor.user_id = t1.user1_id
+                     and self_favor.sku_id = i.sku_id
+               
+               )
+;
 
 
 -- 2023年09月09日23:36:50 最好的方式
@@ -1066,7 +1117,8 @@ WHERE
                    SELECT 1
                    FROM favor_info self_f
                    WHERE
-                       friendship_info_full.user1_id = self_f.user_id AND friend_favor.sku_id = self_f.sku_id
+                         friendship_info_full.user1_id = self_f.user_id
+                     AND friend_favor.sku_id = self_f.sku_id
                );
 
 
@@ -1097,7 +1149,7 @@ WHERE
 select user_id, sku_id
 from friendship_info      friend_info
          -- 先关联上
-         -- NOTE join not exists 是成组的
+         --  join not exists 是成组的
      left join favor_info friend_f
      on friend_info.user2_id = friend_f.user_id
 where
@@ -1115,7 +1167,7 @@ union
 select user_id, sku_id
 from friendship_info friend_info
          -- 先关联上
-         -- NOTE join not exists 是成组的
+         --  join not exists 是成组的
      join favor_info friend_favor
      on friend_info.user1_id = friend_favor.user_id
 where
@@ -1152,7 +1204,6 @@ from (
 where
     user_favor.sku_id is null;
 
--- P1 再思考
 
 
 SELECT DISTINCT
@@ -1185,7 +1236,6 @@ WHERE
                             );
 
 
--- P1 再思考
 
 SELECT DISTINCT
     f1.user1_id AS user_id
@@ -1275,7 +1325,7 @@ from (
 --     user_favor.sku_id is null;
 
 
--- NOTE 朋友的话, 是互为朋友, 要 union
+--  朋友的话, 是互为朋友, 要 union
 select user1_id as user_id, user2_id as friend_id, sku_id
 from (
          select user1_id, user2_id
@@ -1298,7 +1348,7 @@ from friendship_info       fi
 
 
 
--- NOTE 各种 join 之间的练习和区别
+-- 各种 join 之间的练习和区别
 -- join == inner join
 -- left outer join == left join
 -- right outer join == right join
@@ -1328,10 +1378,10 @@ from (
          from friendship_info
      )                    t1 -- 上述子查询的结果命名为t1
 
--- NOTE 使用 left join 来扩展列
+--  使用 left join 来扩展列
 
 
--- NOTE join的话, 一定要起别名
+--  join的话, 一定要起别名
 -- 把朋友的收藏放进来
      left join favor_info fi on t1.friend_id = fi.user_id
                    -- 把自己的收藏放进来
@@ -1341,16 +1391,20 @@ where
 ;
 
 
--- NOTE 去除某段字符,
+-- 去除某段字符,
 -- substring
 -- split
 -- cast
 -- date_format()
 
 
+select 7.0;
+
+select cast( 7.0 as datetime );
+
 -- 2.15.1 题目需求
 -- 从登录明细表（user_login_detail）中查询出，所有用户的连续登录两天及以上的日期区间，以登录时间（login_ts）为准。期望结果如下：
--- split 取出日期 NOTE
+-- split 取出日期
 select user_id, count( flag ) as count_flag, min( get_date ) as start_date, max( get_date ) as end_date
 from (
          select user_id, get_date, row_number, date_sub( get_date, row_number ) as flag
@@ -1366,7 +1420,7 @@ from (
               ) t2
      ) t3
 group by user_id, flag
-       -- NOTE having count也是经常使用
+       --  having count也是经常使用
 having
     count( flag ) >= 2
 ;
@@ -1412,8 +1466,8 @@ having
 -- 107	2021-10-05	2021-10-06
 
 
--- 筛选出连续登录的用户 NOTE
--- NOTE lag直接相等的方式只能筛选一个固定的值, 不能筛选连续多天
+-- 筛选出连续登录的用户
+--  lag直接相等的方式只能筛选一个固定的值, 不能筛选连续多天
 
 -- 一次只能筛选出一个
 --      使用 lag--> 相减--> 筛选等于固定的数字的,
@@ -1489,7 +1543,7 @@ from (
      ) t1
 group by create_date;
 
--- NOTE 有了 over,就是原来基础上增加 1 列, 就不会去重了.
+--  有了 over,就是原来基础上增加 1 列, 就不会去重了.
 select distinct
     create_date
   , sum( if( gender = '男', total_amount, 0 ) ) over (partition by create_date) as total_amount_male
@@ -1562,15 +1616,25 @@ from (
          from order_info
          group by create_date
      ) t1;
--- 2.18 购买过商品1和商品2但是没有购买商品3的顾客 -- STAR
+-- 2.18 购买过商品1和商品2但是没有购买商品3的顾客
 -- 2.18.1 题目需求
 -- 从订单明细表(order_detail)中查询出所有购买过商品1和商品2，但是没有购买过商品3的用户，期望结果如下：
 -- user_id
 -- 103
 -- 105
 
--- NOTE 有 1 有 2, 没有 3, 借助集合实现
---
+
+--  array_contains()的样例用法
+select *
+from (
+         select user_id, collect_set( sku_id ) as cs
+         from order_detail od join order_info oi on oi.order_id = od.order_id
+         group by user_id
+     ) t1
+where
+    ( array_contains( cs, '1' ) or array_contains( cs, '2' ) ) and !array_contains( cs, '3' )
+
+
 
 select user_id, cs
 from (
@@ -1615,7 +1679,7 @@ group by create_date
 -- 101	4	2021-09-30
 -- 102	5	2021-10-01
 
--- NOTE 注意,  order by 后常常跟着 desc
+--  注意,  order by 后常常跟着 desc
 
 select *
 from (
@@ -1645,185 +1709,166 @@ from (
      ) t1
 group by user_id
 
---NOTE  null只能用is 来判断, 不可以用 大于 小于来判断
+--  null只能用is 来判断, 不可以用 大于 小于来判断
 
---2.22 查询相同时刻多地登陆的用户 STAR
+--2.22 查询相同时刻多地登陆的用户
 --     2.22.1 题目需求
 -- 从登录明细表（user_login_detail）中查询在相同时刻，多地登陆（ip_address不同）的用户，期望结果如下：
 -- user_id(用户id)
 -- 101
 -- 102
--- 104
--- 107
-
-
--- NOTE 尽量不适用 join,因为他的效率很低.
-
-select distinct uld.user_id
-from user_login_detail      uld
-     join user_login_detail uld2
-              -- 通过主键关联是最基本的一步
-     on uld.user_id = uld2.user_id
-         -- 确保不是一行
-         and uld.login_ts != uld2.login_ts
-         -- 关联条件
-         and uld.login_ts < uld2.logout_ts
-         and uld.logout_ts > uld2.login_ts
-         and uld.ip_address != uld2.ip_address;
-
-
-select distinct user_id
+-- 2023年09月21日17:10:12
+select *
 from (
-         
-         select *, `if`( max_logout is null, 2, `if`( max_logout > login_ts, 1, 0 ) ) as flag
+         select user_id, ip_address, login_ts, logout_ts, last_max_logout_ts
          from (
                   select
                       user_id
                     , ip_address
                     , login_ts
                     , logout_ts
-                    , max( logout_ts ) over (
-                      partition by user_id
-                      order by logout_ts rows between unbounded preceding and 1 preceding ) as max_logout
-                  from user_login_detail uld
-              ) t1
-     ) t2
-where
-    flag = 1
-
--- flag 可以判断多个 NOTE
-
-;
-
--- 好用的
-select distinct user_id
-from (
-         select
-             user_id
-           , login_ts
-           , max( logout_ts )
-                  over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as max_logout
-         from user_login_detail
-     ) t1
-where
-    max_logout > login_ts
-;
-
---  NOTE null不能用来比较打下, 比较的话, 结果仍然为 null
-
-
-select null < 1;
-
--- 参考答案, 比较通用, P1
-
-select
-    *
-    --     distinct     t2.user_id
-from (
-         select
-             t1.user_id
-           , login_ts
-           , logout_ts
-           , max_logout
-             -- NOTE 用 if 打标签, 很经典
-             -- if嵌套是有顺序的, 和直接拿出某个数来还不一样
-           , if( t1.max_logout is null, 2, if( t1.max_logout < t1.login_ts, 1, 0 ) ) as flag
-         from (
-                  select
-                      user_id
-                    , login_ts
-                    , logout_ts
                     , max( logout_ts )
-                           over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as max_logout
-                  from user_login_detail
-              ) t1
-     ) t2
+                           over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as last_max_logout_ts
+                  from (
+                           select user_id, ip_address, login_ts, logout_ts
+                           from user_login_detail
+                       ) init_table
+              ) max_table
+         where
+             last_max_logout_ts > login_ts
+     )                           fold_ts
+     left join user_login_detail uld
+     on fold_ts.user_id = uld.user_id and fold_ts.last_max_logout_ts = uld.logout_ts and
+        fold_ts.ip_address != uld.ip_address
 where
-    t2.flag = 0
-;
-
--- 参考 GPT
-SELECT DISTINCT a.user_id
-FROM user_login_detail      a
-     JOIN user_login_detail b
-     ON a.user_id = b.user_id
-         
-         -- NOTE 检测重叠方法, 非常好用
-         AND a.login_ts < b.logout_ts
-         AND a.logout_ts > b.login_ts
-         AND a.ip_address != b.ip_address;
+    uld.user_id is not null;
 
 
+-- 2023年09月20日20:12:40
 
-select
-    uld.user_id
-  , uld.ip_address
-from user_login_detail           uld
-     left join user_login_detail uld2
-     on uld2.user_id = uld.user_id
-         
-         -- P2 如何表示重合
-         -- 利用最大登出时间
-         and uld2.ip_address != uld.ip_address
+-- 找出重合, 用 max 准没错
 
+-- 在重合的同时, ip 不同
 
--- note null 跟任何值的结果比较仍然为 null, if 做判断的时候, null 为不成立
-select null > 1;
-select null < 1;
-select null = null;
-
-select `if`( null > 1, 1, 0 );
-select `if`( null < 1, 1, 0 );
-select `if`( null = null, 1, 0 );
-
-
--- 参考, 这个缺少对不同 ip 的判断
-select distinct
-    t2.user_id
+select *
 from (
-         select
-             t1.user_id
-           , login_ts
-           , ip_address
-           , max_logout
-             -- 这里对 null 的处理 NOTE
-           , if( t1.max_logout is null, 2, if( t1.max_logout < t1.login_ts, 1, 0 ) ) as flag
-           
-           , `if`( t1.max_logout < t1.login_ts, 1, 0 )
+         -- 把重合的找出来
+         select *
          from (
                   select
                       user_id
-                    , login_ts
-                    , logout_ts
                     , ip_address
-                      -- NOTE 重合问题, 使用截止上一行的最大右和当前的左比较
-                    
-                    , max( logout_ts )
-                           over (partition by user_id order by login_ts rows between unbounded preceding and 1 preceding) as max_logout
+                    , login_ts
+                    , logout_ts
+                    , max( logout_ts ) over (partition by user_id order by login_ts
+                      rows between unbounded preceding and 1 preceding)
+                          as last_logout_ts
+                      -- 修饰不一定放在末尾, 怎么顺手怎么写
                   from user_login_detail
-              ) t1
-     ) t2
-where
-    t2.flag = 0
+              ) flag_table
+         where
+             last_logout_ts > login_ts
+     )                      t1
+         -- 为了找出不同的 ip
+     join user_login_detail uld
+     on t1.user_id = uld.user_id
+         and t1.last_logout_ts = uld.logout_ts
+         and t1.ip_address != uld.ip_address
+;
 
 
---2.23 销售额完成任务指标的商品 STAR
---     2.23.1 题目需求
+
+--2.23 销售额完成任务指标的商品 STAR STAR
 -- 商家要求每个商品每个月需要售卖出一定的销售总额
--- 假设1号商品销售总额大于21000，2号商品销售总额大于10000，其余商品没有要求
+-- 假设1号商品销售总额大于1000，2号商品销售总额大于10，其余商品没有要求
 -- 请写出SQL从订单详情表中（order_detail）查询连续两个月销售总额大于等于任务总额的商品
+
+
+-- months_between算的并不是自然月, 其实很精确. , 先集中处理一下
+select add_months( '2020-09-09', 1 )
+select months_between( '2020-09-09', '2020-09-12' )
+
+-- 2023年09月20日21:39:22 最优解, 高效而健壮
+select
+    sku_id
+  , ym
+  , ymd
+  , months_between( ymd, lag_ymd )
+from (
+         
+         select sku_id, ym, ymd, lag( ymd, 1, ymd ) over (partition by sku_id order by ymd) as lag_ymd
+         from (
+                  
+                  -- 此处必须得分步骤
+                  select sku_id, ym, concat( ym, '-01' ) as ymd
+                  from (
+                           select distinct sku_id, date_format( create_date, 'yyyy-MM' ) as ym
+                           from (
+                                    select sku_id, create_date, sum_price_month
+                                    from (
+                                             select
+                                                 sku_id
+                                               , create_date
+                                               , sum( price )
+                                                      over (partition by sku_id,date_format( create_date, 'yyyy-MM' )) as sum_price_month
+                                             from order_detail
+                                         ) t1
+                                    where
+                                         ( sum_price_month > 1000 and sku_id = 1 )
+                                      or ( sum_price_month > 10 and sku_id = 2 )
+                                ) t2
+                       ) t3
+              ) t4
+     
+     ) t5
+where
+    months_between( ymd, lag_ymd ) = 1
+;
+
+select order_id, create_date, lag( create_date, 1, create_date ) over (partition by sku_id order by create_date)
+from order_detail od
+
+
+
+select sku_id, year_month, sum_price, if_1, if_2, create_date
+from (
+         select
+             sku_id
+           , create_date
+           , year_month
+           , sum_price
+           , `if`( sku_id = 1 and sum_price > 2000, 1, 0 ) as if_1
+           , `if`( sku_id = 2 and sum_price > 10, 2, 0 )   as if_2
+         from (
+                  select
+                      sku_id
+                    , year_month
+                    , sum( price ) over (partition by sku_id,year_month) as sum_price
+                    , create_date
+                  from (
+                           select sku_id, price, date_format( create_date, 'yyyy-MM' ) as year_month, create_date
+                           from order_detail od
+                       ) t1
+              ) t2
+     ) t3
+
+
+
 select date_format( create_date, 'yyyy-MM' )
 from order_detail od
 
 -- 注意, month()只能去除月份, 不能取出年
 
 
--- NOTE partition可以是多个字段
+--  partition可以是多个字段
 
--- NOTE 日期格式的不正确, 会返回 null, 可以通过 concat 先转化为标准日期
+--  日期格式的不正确, 会返回 null, 可以通过 concat 先转化为标准日期
+
+-- 2023年09月20日21:32:00 最好的答案
 select sku_id
 from (
          
+         -- concat先拼接一下, 凑成日期格式, 很美妙
          select sku_id, date_year_month, rn, add_months( concat( date_year_month, '-01' ), -rn ) as flag
          from (
                   
@@ -1850,71 +1895,7 @@ group by sku_id, flag
 having
     count( * ) >= 2
 ;
--- p1 连续 2 个月大于
 
-
--- 对特定的 key 做判断, 其他的不做判断. 只需要把特定的筛选出来即可
--- 连续 2 个月,
-
-
--- p2 CASE when then 放在什么位置?
---     case date_year_month
--- when sum_amount>20000 then
-
-;
-
-
--- 参考
-
--- 求出1号商品  和  2号商品 每个月的购买总额 并过滤掉没有满足指标的商品
-select
-    sku_id
-  , concat(
-        substring(
-            create_date
-            , 0
-            , 7 )
-        , '-01' )         as ymd
-  , sum(
-        price * sku_num ) as sku_sum
-from order_detail
-where
-    sku_id = 1 or sku_id = 2
-group by sku_id, substring( create_date, 0, 7 )
-having
-     (
-         sku_id = 1 and sku_sum >= 21000 )
-  or (
-         sku_id = 2 and sku_sum >= 10000 )
-
--- 判断是否为连续两个月
-select distinct
-    t3.sku_id
-from (
-         select
-             t2.sku_id
-           , count( * ) over (partition by t2.sku_id, t2.rymd) as cn
-         from (
-                  select
-                      t1.sku_id
-                    , add_months( t1.ymd, -row_number( ) over (partition by t1.sku_id order by t1.ymd) ) as rymd
-                  from (
-                           select
-                               sku_id
-                             , concat( substring( create_date, 0, 7 ), '-01' ) as ymd
-                             , sum( price * sku_num )                          as sku_sum
-                           from order_detail
-                           where
-                               sku_id = 1 or sku_id = 2
-                           group by sku_id, substring( create_date, 0, 7 )
-                           having
-                               ( sku_id = 1 and sku_sum >= 21000 ) or ( sku_id = 2 and sku_sum >= 10000 )
-                       ) t1
-              ) t2
-     ) t3
-where
-    t3.cn >= 2
-;
 
 
 -- 2.24 根据商品销售情况进行商品分类
@@ -1952,7 +1933,7 @@ from (
      ) t2
 group by categray
 
--- 2.25 各品类销量前三的所有商品 STAR
+-- 2.25 各品类销量前三的所有商品
 -- 2.25.1 题目需求
 -- 从订单详情表中（order_detail）和商品（sku_info）中查询各个品类销售数量前三的商品。如果该品类小于三个商品，则输出所有的商品销量。
 -- 结果如下：
@@ -1963,6 +1944,21 @@ group by categray
 -- 8	2
 -- 7	2
 -- 5	2
+
+select sku_id, category_id, drk
+from (
+         select sku_id, category_id, dense_rank( ) over (partition by category_id order by sum_sku_num) as drk
+         from (
+                  select category_id, od.sku_id, sum( sku_num ) as sum_sku_num
+                  from order_detail od join sku_info si on si.sku_id = od.sku_id
+                  group by category_id, od.sku_id
+              ) init_table
+     
+     ) drk_table
+where
+    drk <= 3
+;
+
 
 select sku_id, category_id
 from (
@@ -2030,7 +2026,7 @@ from (
 where
     t2.rk <= 3;
 
---2.26 各品类中商品价格的中位数 STAR
+--2.26 各品类中商品价格的中位数 STAR STAR
 -- 题目需求
 -- 从商品（sku_info ）中价格的中位数, 如果中位数如果是偶数则输出中间两个值的平均值，如果是奇数，则输出中间数即可。
 -- 结果如下：
@@ -2039,10 +2035,63 @@ where
 -- 2	        1250.0
 -- 3	        510.0
 
+
+--
+select category_id, avg(price)
+from (
+         select
+             category_id
+              -- NOTE 开窗一定要考虑下 partition by 和 order by 之后是什么样子
+           , count( * ) over (partition by category_id)                                           as cn
+           , price
+           , row_number( ) over (partition by category_id order by price) as rn
+         from sku_info si
+     ) init_tab
+where
+    -- 偶数情况
+    (
+            cn % 2 = 0
+            -- NOTE  只取中间 2 行, 很巧妙
+            and ( rn = cn / 2 or rn = cn / 2 + 1 )
+        )
+    or
+    -- 奇数情况
+    (
+        cn % 2=1
+            -- 选出中间行
+        and rn=cn/2+1
+        )
+    
+group by category_id
+;
+
+
+
+-- 奇数情况
+
+select
+    sku_id
+  , price
+  , rn
+  , category_id
+  ,
+    -- NOTE case 用来打标签, 但是这个标签必须是自制的
+    -- NOTE 多少行, 直接 count, 用 rn就麻烦了
+from (
+         select sku_id, price, row_number( ) over (partition by category_id order by price) as rn, category_id
+         from sku_info si
+     ) rn_tab
+where
+--     max( rn ) % 2 = 0
+
+
+-- 偶数情况
+
+
 select
     category_id
   , avg( price ) as middle_price
-    -- 取出中间的值遇到了问题 P1
+    -- 取出中间的值遇到了问题
 from (
          select
              sku_id
@@ -2050,12 +2099,12 @@ from (
            , price
            , count( * ) over (partition by category_id )                        as cn
            , count( * ) over (partition by category_id ) % 2                    as flag
-             -- NOTE 用 row_number就一定要用 order by, 否则 row_number就没有意义了
+             -- 用 row_number就一定要用 order by, 否则 row_number就没有意义了
            , row_number( ) over (partition by category_id order by price desc ) as rn
          from sku_info si
      ) t1
      -- 取出品类中商品数为偶数
-     -- NOTE 看奇数还是偶数就是用  %
+     --  看奇数还是偶数就是用  %
 where
       cn % 2 = 0
       -- 取出中间 2 行
@@ -2074,12 +2123,11 @@ from (
            , category_id
            , price
            , count( * ) over (partition by category_id )                        as cn
-             -- NOTE 用 row_number就一定要用 order by, 否则 row_number就没有意义了
+             --  用 row_number就一定要用 order by, 否则 row_number就没有意义了
            , row_number( ) over (partition by category_id order by price desc ) as rn
          from sku_info si
      ) t1
      -- 取出品类中商品数为技术
-     -- NOTE 看奇数还是偶数就是用  %
 where
       cn % 2 = 1
       -- 取出中间 2 行
@@ -2198,8 +2246,8 @@ where
 select sku_id, flag, count( * )
 from (
          
-         -- NOTE 全部为日期的时候才可以用 datediff
-         -- NOTE 一个为日期格式, 另一个为整数的时候, 用 date_sbu
+         -- 全部为日期的时候才可以用 date_diff
+         --  一个为日期格式, 另一个为整数的时候, 用 date_sub
          select sku_id, date_sub( create_date, rn ) as flag
          from (
                   
@@ -2257,63 +2305,65 @@ where
     t3.cdrk >= 3
 
 
--- 2.28 查询有新注册用户的当天的新用户数量、新用户的第一天留存率 STAR
+-- 2.28 查询有新注册用户的当天的新用户数量、新用户的第一天留存率 STAR STAR
 -- 从用户登录明细表（user_login_detail）中首次登录算作当天新增，第二天也登录了算作一日留存
 -- 结果如下：
 -- first_login（注册时间）	Register（新增用户数）	Retention（留存率）
--- 2021-09-21	1	0.0
--- 2021-09-22	1	0.0
--- 2021-10-04	2	0.5
--- 2021-10-06	1	0.0
+-- 2021-09-21	            1               	0.0
 
--- NOTE 连续登录问题, 先去重. 否则统计时必然出现误差
--- 2023年09月13日08:39:59
+
+-- 2023年09月23日15:17:00
 select
-    t2.user_id
-  , register_date
-  , u.user_id
-  , u.login_ts
-    --   , count( t2.user_id ) as register_count
-from (
-         select user_id, min( date_formatted ) as register_date
-         from (
-                  select distinct user_id, date_format( login_ts, 'yyyy-MM-dd' ) as date_formatted
-                  from user_login_detail uld
-              ) t1
-         group by user_id
-     )                           t2
-     left join user_login_detail u
-     on u.user_id = t2.user_id
-         and datediff( login_ts, register_date ) = 1
-;
-
-
-
-select datediff( login_ts, '2021-09-09' )
-from user_login_detail uld
-;
-
--- 参考
-
--- 每个用户首次登录时间 和 第二天是否登录 并看每天新增和留存数量
-select
-    t1.first_login
-  , count( t1.user_id ) as register
-  , count( t2.user_id ) as remain_1
+    login_date
+  , sum( if( rn = 1, 1, 0 ) )                                                   as register_amount
+  , sum( `if`( rn = 1 and datediff( lead_login_date, login_date ) = 1, 1, 0 ) ) as retention_amount
 from (
          select
              user_id
-           , date_format( min( login_ts ), 'yyyy-MM-dd' ) as first_login
-         from user_login_detail
-         group by user_id
-     )                 t1
-     left join
-     user_login_detail t2
-     on
-                 t1.user_id = t2.user_id
-             and datediff( date_format( t2.login_ts, 'yyyy-MM-dd' ), t1.first_login ) = 1
-group by t1.first_login
+           , login_date
+             -- 使用 rn, 为的是筛选出首次登录
+           , row_number( ) over (partition by user_id order by login_date)         as rn
+             -- 用 lag 为连续做准备
+             -- NOTE, 应该使用 lead, 这里有微妙的区别
+           , lead( login_date, 1 ) over (partition by user_id order by login_date) as lead_login_date
+             --            , lag( login_date, 1 ) over (partition by user_id order by login_date) as lag_login_date_1
+         from (
+                  -- 去重
+                  select distinct user_id, date( login_ts ) as login_date
+                  from user_login_detail
+              ) distinct_tab
+     ) tag_tab
+where
+    rn <= 2
+group by login_date
 ;
+
+
+-- 2023年09月23日14:53:25
+select
+    *
+  , `if`( rn = 1, 1, 0 )                                                as new_user
+  , if( rn = 2 and datediff( login_date, lag_login_date_1 ) = 1, 1, 0 ) as retention
+from (
+         select
+             user_id
+           , login_date
+             -- 使用 rn, 为的是筛选出首次登录
+           , row_number( ) over (partition by user_id order by login_date)        as rn
+             -- 用 lag 为连续做准备
+           , lag( login_date, 1 ) over (partition by user_id order by login_date) as lag_login_date_1
+         from (
+                  -- 去重
+                  select distinct user_id, date( login_ts ) as login_date
+                  from user_login_detail
+              ) distinct_tab
+     ) tag_tab
+;
+
+-- NOTE sum(if()) 做统计, 一步到位
+
+
+-- 参考
 
 -- 新增数量和留存率
 select
@@ -2321,6 +2371,8 @@ select
   , t3.register
   , t3.remain_1 / t3.register as retention
 from (
+         -- 每个用户首次登录时间 和 第二天是否登录 并看每天新增和留存数量
+         
          select
              t1.first_login
            , count( t1.user_id ) as register
@@ -2328,7 +2380,7 @@ from (
          from (
                   select
                       user_id
-                    , date_format( min( login_ts ), 'yyyy-MM-dd' ) as first_login
+                    , date( min( login_ts ) ) as first_login
                   from user_login_detail
                   group by user_id
               )                 t1
@@ -2337,43 +2389,11 @@ from (
               on
                           t1.user_id = t2.user_id
                       and
-                          datediff( date_format( t2.login_ts, 'yyyy-MM-dd' ), t1.first_login ) = 1
+                          datediff( date( t2.login_ts ), t1.first_login ) = 1
          group by t1.first_login
      ) t3
 ;
 
-
--- 我的 2023年09月13日07:55:45
-select
-    user_id
-  , login_date
-  , drk
-  , sum( `if`( drk = 1, 1, 0 ) ) over (partition by user_id order by login_date) as first_day_login
-from (
-         select user_id, login_date, dense_rank( ) over (partition by user_id order by login_date) as drk
-         from (
-                  select distinct user_id, date_format( login_ts, 'yyyy-MM-dd' ) as login_date
-                  from user_login_detail uld
-              ) t1
-     ) t2
-
-
-select login_date, count( * ) as first_day_login
-from (
-         select
-             user_id
-           , login_date
-           , drk
-           , sum( `if`( drk = 1, 1, 0 ) ) as first_day_login
-         from (
-                  select user_id, login_date, dense_rank( ) over (partition by user_id order by login_date) as drk
-                  from (
-                           select distinct user_id, date_format( login_ts, 'yyyy-MM-dd' ) as login_date
-                           from user_login_detail uld
-                       ) t1
-              ) t2
-     ) t3
-group by login_date
 
 
 -- 2.29 求出商品连续售卖的时间区间
@@ -2387,7 +2407,7 @@ group by login_date
 -- 10	2021-10-02	2021-10-03
 
 
--- NOTE 日期连续先去重
+--  日期连续先去重
 select sku_id, min( create_date ) as start_date, max( create_date ) as end_date
 from (
          select sku_id, create_date, rn, date_sub( create_date, rn ) as flag
@@ -2401,9 +2421,43 @@ from (
      ) t12
 group by sku_id, flag
 
--- 2.30 登录次数及交易次数统计 STAR
+-- 2.30 登录次数及交易次数统计
 -- 2.30.1 题目需求
 -- 分别从登陆明细表（user_login_detail）和配送信息表中用户登录时间和下单时间统计登陆次数和交易次数
+-- 结果如下（截取部分）：
+-- User_id
+-- （用户id）	Login_date
+-- （登录时间）	login_count
+-- （登陆次数）	Order_count
+-- （交易次数）
+-- 101	2021-09-21	1	0
+-- 101	2021-09-27	1	1
+-- 101	2021-09-28	1	1
+-- 101	2021-09-29	1	1
+-- 101	2021-09-30	1	1
+
+
+-- 2023年09月21日17:01:20
+select login_table.user_id, date_login_ts, date_order_date, login_times, order_times
+from (
+         select user_id, date( login_ts ) as date_login_ts, count( login_ts ) as login_times
+         from user_login_detail uld
+         group by user_id, date( login_ts )
+     ) login_table left join (
+                                 select
+                                     user_id
+                                   , date( order_date )   as date_order_date
+                                   , count( delivery_id ) as order_times
+                                 from delivery_info di
+                                 group by user_id, date( order_date )
+                             
+                             ) delivery_table
+                   on login_table.user_id = delivery_table.user_id
+
+
+select *
+from delivery_info
+
 
 select t1.user_id, order_date, nvl( order_times, 0 ) as order_times, login_date, login_times
 from (
@@ -2411,11 +2465,11 @@ from (
          select
              user_id
            , date_format( login_ts, 'yyyy-MM-dd' ) as login_date
-             -- 不能使用 count(*) P1
+             -- 不能使用 count(*)
            , count( * )                            as login_times
          from user_login_detail uld
          group by user_id, date_format( login_ts, 'yyyy-MM-dd' )
-         -- NOTE 使用 join 的事后,一般使用 left join
+         -- 使用 join 的事后,一般使用 left join
      ) t1 left join (
                         -- 用户的下单次数
                         select
@@ -2478,13 +2532,14 @@ select
 from order_detail od
 where
     create_date >= '2021-09-27' and create_date <= '2021-10-03'
-    --  NOTE 日期可以直接用来比较大小, 计算具体天数时需要用 datediff, date_sub.
-    --  NOTE null 只能用 is 来判断
-    -- NOTE and if or 连接的一定是逻辑
+    --   日期可以直接用来比较大小, 计算具体天数时需要用 datediff, date_sub.
+    --   null 只能用 is 来判断
+    --  and if or 连接的一定是逻辑
 
 group by sku_id
 
-select `dayofweek`( '2023-09-13' )
+select date( '2023-09-13' )
+select CAST( '2023-09-13' AS DATE );
 
 
 -- 2.33 查看每件商品的售价涨幅情况
@@ -2498,8 +2553,8 @@ select `dayofweek`( '2023-09-13' )
 -- 11	-16.00
 -- 12	-15.00
 
-
--- NOTE 涨幅肯定是新的减旧的
+--  想要扩展列, 就是使用 left join, join 会导致数据丢失
+--  涨幅肯定是新的减旧的
 select sku_id, t1.new_price - lead_price as change_price
 from (
          select
@@ -2515,7 +2570,7 @@ where
     rn = 1
 ;
 
--- 2.34 销售订单首购和次购分析 STAR
+-- 2.34 销售订单首购和次购分析 STAR STAR
 -- 2.34.1 题目需求
 -- 通过商品信息表（sku_info）订单信息表（order_info）订单明细表（order_detail）
 -- 分析如果有一个用户成功下单两个及两个以上的购买成功的手机订单（购买商品为xiaomi 10，apple 12，小米13）
@@ -2524,24 +2579,33 @@ where
 -- 101	2021-09-27	2021-09-28	3
 -- 1010	2021-10-08	2021-10-08	2
 -- 102	2021-10-01	2021-10-01	3
+select *
+from sku_info si
 
--- NOTE case when then end相当于 if, case 使用范围更广
+select *
+from order_info oi
+
+select *
+from order_detail od
+
+
+--  case when then end相当于 if, case 使用范围更广
 
 
 select
     user_id
     -- coalesce取出第一个非空的
-    -- NOTE 这里使用 MAX, 非常巧妙
-    -- NOTE 另外一个 MAX 的用法就是取出一个用到了聚合函数的东西
+    --  这里使用 MAX, 非常巧妙
+    --  另外一个 MAX 的用法就是取出一个用到了聚合函数的东西
   , max( CASE WHEN rn = 1 THEN create_date END ) as first_buy_date
   , max( `if`( rn = 2, create_date, null ) )     as second_buy_date
-  , count( * )
+  , count( * )                                   as cn
 from (
          select
              user_id
            , name
            , create_date
-           , row_number( ) over (partition by user_id order by create_date) as rn
+           , row_number( ) over (partition by user_id order by create_date ) as rn
          from (
                   select user_id, od.create_date, name
                   from order_detail    od
@@ -2552,11 +2616,13 @@ from (
               ) t1
      ) t2
 group by user_id
+having
+    count( * ) >= 2
 ;
 
 
--- NOTE first value的妙用: 可以取出第一行, 第二行
--- NOTE last value 结合 bounded unbounded可以非常灵活取数
+--  first value的妙用: 可以取出第一行, 第二行
+--  last value 结合 bounded unbounded可以非常灵活取数
 -- GPT
 
 SELECT
@@ -2601,13 +2667,13 @@ from order_info   oi
      on
          od.sku_id = si.sku_id
 where
-    -- NOTE 使用 in 要比使用很多 or 强很多
+    --  使用 in 要比使用很多 or 强很多
     si.name in ( 'xiaomi 10', 'apple 12', 'xiaomi 13' )
 
 
--- 2.35 同期商品售卖分析表
+-- 2.35 同期商品售卖分析表 STAR STAR STAR
 -- 从订单明细表（order_detail）中。
--- 求出同一个商品在2021年和2022年中同一个月的售卖情况对比。
+-- 求出同一个商品在2021年和2020年中同一个月的售卖情况对比。
 -- 结果如下（截取部分）：
 -- Sku_id（商品id）
 -- Month-- （月份）
@@ -2617,13 +2683,33 @@ where
 -- 1	10	2	38
 -- 10	10	94	205
 
--- NOTE 写了半天是错的, 主要是因为没有审清楚题
+select
+    sku_id
+  , create_month
+  , sum( `if`( create_year = 2020, sum_sku_num, 0 ) )
+  , sum( `if`( create_year = 2021, sum_sku_num, 0 ) )
+from (
+         select
+             sku_id
+           , year( create_date )  as create_year
+           , month( create_date ) as create_month
+           , sum( sku_num )       as sum_sku_num
+         from (
+                  select sku_id, create_date, sku_num
+                  from order_detail od
+              ) init_tab
+         group by sku_id, year( create_date ), month( create_date ), sku_num
+     ) sum_tab
+group by sku_id, create_month
+-- NOTE group by 谁,这一步很关键
+
+
+-- 写了半天是错的, 主要是因为没有审清楚题
 
 
 select
     sku_id
   , month_create_date
-    -- NOTE sum(if(,,0)) 这个组合非常好用
   , sum( `if`( year_create_date = 2020, sum_sku_num, 0 ) ) as sum_sku_num_2020
   , sum( `if`( year_create_date = 2021, sum_sku_num, 0 ) ) as sum_sku_num_2021
 from (
@@ -2639,7 +2725,7 @@ group by sku_id, month_create_date
 ;
 
 
--- GPT P1 再对比
+-- GPT 再对比
 SELECT
     sku_id
   , month( create_date )                                as month
@@ -2669,26 +2755,6 @@ from (
 ;
 
 
--- GPT
-
-SELECT
-    sku_id
-  , month
-  , sum( 2020_skusum ) AS 2020_skusum
-  , sum( 2021_skusum ) AS 2021_skusum
-FROM (
-         SELECT
-             sku_id
-           , month( create_date )                                AS month
-           , if( year( create_date ) = 2020, sum( sku_num ), 0 ) AS 2020_skusum
-           , if( year( create_date ) = 2021, sum( sku_num ), 0 ) AS 2021_skusum
-         FROM order_detail
-         WHERE
-             year( create_date ) IN ( 2020, 2021 )
-         GROUP BY sku_id, month( create_date ), year( create_date )
-     ) CTE
-GROUP BY sku_id, month
-ORDER BY sku_id, month;
 
 
 -- 参考核对
@@ -2773,67 +2839,58 @@ from (
          group by sku_id
      ) t2
      on t1.sku_id = t2.sku_id
+;
 
--- 2.37 统计活跃间隔对用户分级结果 STAR
--- NOTE 打标签的话, 用 case when then 最合适不过. sum if 适合用来分列, 取某个值
--- 2.37.1 题目需求
--- 用户等级：
+-- 2.37 统计活跃间隔对用户分级结果 STAR STAR
+-- 打标签的话, 用 case when then 最合适不过. sum if 适合用来分列, 取某个值
 -- 忠实用户：近7天活跃且非新用户
 -- 新晋用户：近7天新增
 -- 沉睡用户：近7天未活跃但是在7天前活跃
 -- 流失用户：近30天未活跃但是在30天前活跃
 -- 假设今天是数据中所有日期的最大值，从用户登录明细表中的用户登录时间给各用户分级，求出各等级用户的人数
+
 -- 结果如下：
 -- Level（用户等级）	Cn（用户数量)
 -- 忠实用户	6
 -- 新增用户	3
 -- 沉睡用户	1
 
-
--- 确定今天日期
-select `if`( max( login_ts ) > max( logout_ts ), max( login_ts ), max( logout_ts ) )
-from user_login_detail uld
-;
-
--- 基础数据去重
-
-(
-    select distinct user_id, date( login_ts ) as active_date
-    from user_login_detail uld
-)
-union
-(
-    select distinct user_id, date( logout_ts ) as active_date
-    from user_login_detail uld
-)
-
--- 忠实用户：近7天活跃且非新用户
-
-select
-    count( * ) as loyal_user
+-- 2023年09月23日11:55:42
+select level, count( user_id )
 from (
+         
          select
              user_id
-           , active_date
-           , min( active_date ) over (partition by user_id order by active_date) as first_login
-           , max( active_date ) over (partition by user_id order by active_date) as last_login
-           , '2021-10-09'                                                        as today
+           , last_active_date
+           , first_active_date
+           , today
+             -- NOTE 打标签, case 最强,没有之一
+           , case
+                 when datediff( today, last_active_date ) <= 7 and datediff( today, first_active_date ) > 7 then 'loyal'
+                 when datediff( today, first_active_date ) <= 7                                             then 'new'
+                 when datediff( today, last_active_date ) > 7                                               then 'sleep'
+                 when datediff( today, last_active_date ) > 30                                              then 'go'
+             end as level
          from (
-                  (
-                      select distinct user_id, date( login_ts ) as active_date
-                      from user_login_detail uld
-                  )
-                  union
-                  (
-                      select distinct user_id, date( logout_ts ) as active_date
-                      from user_login_detail uld
-                  )
-              ) t1
-     ) t12
-where
-      
-      datediff( today, active_date ) <= 7
-  and ( datediff( today, first_login ) > 7 or datediff( today, last_login ) > 7 )
+                  select user_id, last_active_date, first_active_date, max( last_active_date ) over () as today
+                  from (
+                           select
+                               user_id
+                             , max( ts ) as last_active_date
+                             , min( ts ) as first_active_date
+                           from (
+                                    select user_id, date( login_ts ) as ts
+                                    from user_login_detail
+                                    union all
+                                    select user_id, date( logout_ts ) as ts
+                                    from user_login_detail
+                                ) init_tab
+                           group by user_id
+                       ) flag_table
+              ) all_data_table
+     
+     ) tag_tab
+group by level
 ;
 
 
@@ -2845,6 +2902,9 @@ select
 from (
          select
              uld.user_id
+             -- NOTE case when then 竖着罗列
+             -- NOTE sum(if()) 横着罗列
+           
            , case
                  when ( date_format( max( uld.login_ts ), 'yyyy-MM-dd' ) <= date_sub( today, 30 ) )
                      then '流失用户'-- 最近登录时间三十天前
@@ -2858,43 +2918,22 @@ from (
                      then '沉睡用户'-- 最早登陆时间是七天前,最大登录时间也是七天前
              end as level
          from user_login_detail uld
+                  -- 给表格加 1 列
               join
               (
                   select
-                      date_format( max( login_ts ), 'yyyy-MM-dd' ) as today
+                      max( date( logout_ts ) ) as today
+                    , max( date( login_ts ) )  as toda
+                  
                   from user_login_detail
               )                 t1
-              on
-                  1 = 1
+         
          group by uld.user_id, t1.today
      ) t2
 group by t2.level
 ;
 
-
-with init_data as (
-                      select
-                          user_id
-                        , active_date
-                        , min( active_date ) over (partition by user_id order by active_date) as first_login
-                        , max( active_date ) over (partition by user_id order by active_date) as last_login
-                        , '2021-10-09'                                                        as today
-                      from (
-                               (
-                                   select distinct user_id, date( login_ts ) as active_date
-                                   from user_login_detail uld
-                               )
-                               union
-                               (
-                                   select distinct user_id, date( logout_ts ) as active_date
-                                   from user_login_detail uld
-                               )
-                           ) t1
-                  )
-;
-where
-    -- P2 怎么让最大日期动态变化. 真实环境中, 只需要用函数取当前日期即可.
-    active_date > date_sub( '2021-10-09', 7 )
+--  真实环境中, 只需要用函数取当前日期即可.
 
 
 -- 新用户
@@ -2940,7 +2979,7 @@ from (
            , flag
            , cn
            , case
-                 -- NOTE 取整, 除法的时候要 floor 一下
+                 --  取整, 除法的时候要 floor 一下
                  when cn % 7 = 1 then floor( cn / 7 ) * ( 7 + 2 + 6 ) + 1
                  when cn % 7 = 2 then floor( cn / 7 ) * ( 7 + 2 + 6 ) + 2
                  when cn % 7 = 3 then floor( cn / 7 ) * ( 7 + 2 + 6 ) + 3 + 2
@@ -2970,12 +3009,17 @@ from (
 group by user_id
 ;
 
--- 2.39 国庆期间的7日动销率和滞销率 STAR
+-- 2.39 国庆期间的7日动销率和滞销率 STAR STAR STAR
 -- 2.39.1 题目需求
 -- 动销率定义为品类商品中一段时间内有销量的商品占当前已上架总商品数的比例（有销量的商品/已上架总商品数）。
 -- 滞销率定义为品类商品中一段时间内没有销量的商品占当前已上架总商品数的比例。（没有销量的商品 / 已上架总商品数）。
 -- 只要当天任一店铺有任何商品的销量就输出该天的结果
 -- 从订单明细表（order_detail）和商品信息表（sku_info）表中求出国庆7天每天每个品类的商品的动销率和滞销率
+
+
+-- NOTE 很多时候在 count 的时候, 在 join 之前, 否则函数就变了
+
+
 -- 结果如下（截取部分）：
 -- Category_id
 -- （品类id）	1号
@@ -2988,6 +3032,54 @@ group by user_id
 -- 2	0.75	0.25	0.75	0.25	0.75	0.25
 -- 3	0.25	0.75	0.75	0.25	0.75	0.25
 
+
+-- GPT 2023年09月23日11:04:29
+-- 查询每个品类在指定日期范围内的动销率和滞销率
+
+select
+    t2.category_id
+  , coalesce( t2.day_1, 0 ) / t3.total_count     as day_1_active_rate
+  , 1 - coalesce( t2.day_1, 0 ) / t3.total_count as day_1_inactive_rate
+  ,
+    -- 重复上述逻辑为其他天数
+    -- ...
+    coalesce( t2.day_7, 0 ) / t3.total_count     as day_7_active_rate
+  , 1 - coalesce( t2.day_7, 0 ) / t3.total_count as day_7_inactive_rate
+
+from (
+         -- 子查询t2: 计算每天每个品类的动销商品数量
+         select
+             si.category_id
+           , sum( if( od.create_date = '2021-10-01', 1, 0 ) ) as day_1
+           ,
+             -- 重复上述逻辑为其他天数
+             -- ...
+             sum( if( od.create_date = '2021-10-07', 1, 0 ) ) as day_7
+         from order_detail od
+              join
+              sku_info     si
+              on od.sku_id = si.sku_id
+         where
+               od.create_date between '2021-10-01' and '2021-10-07'
+           and si.from_date <= od.create_date -- 考虑商品的上架日期
+         group by si.category_id
+     ) t2
+     join
+     (
+         -- 子查询t3: 计算每个品类的总上架商品数量
+         select
+             category_id
+           , count( * ) as total_count
+         from sku_info
+         where
+             sku_info.from_date <= '2021-10-07' -- 只计算在此日期或之前上架的商品
+         group by category_id
+     ) t3
+     on t2.category_id = t3.category_id;
+;
+
+
+
 select t2.category_id, first_day, cn_category, first_day / cn_category
 from (
          select
@@ -2999,15 +3091,15 @@ from (
                   select category_id, create_date
                   from sku_info          si
                        join order_detail od on od.sku_id = si.sku_id
-                       -- NOTE 跟日期相关的时候, 一定要用字符串
+                       -- 跟日期相关的时候, 一定要用字符串
                   where
                       create_date <= '2021-10-07' and create_date >= '2021-10-01'
               
               ) t1
          group by category_id
-     )      t2
+     )      t22
      join (
-              -- NOTE 想要动态获得某些数据, 就是使用 join 的方式
+              --  想要动态获得某些数据, 就是使用 join 的方式
               select category_id, count( * ) as cn_category
               from sku_info s
               group by category_id
@@ -3069,6 +3161,7 @@ from (
                        sku_info     si
                        on
                            od.sku_id = si.sku_id
+                       -- 缩小范围, 有助于提高效率
                   where
                       od.create_date >= '2021-10-01' and od.create_date <= '2021-10-07'
               ) t1
@@ -3087,7 +3180,7 @@ from (
 ;
 
 
--- 2.40 同时在线最多的人数 STAR
+-- 2.40 同时在线最多的人数
 -- 2.40.1 题目需求
 -- 根据用户登录明细表（user_login_detail），求出平台同时在线最多的人数。
 -- 结果如下：
@@ -3095,12 +3188,24 @@ from (
 -- 7
 -- login logout , 先登录的后登出怎么算
 
+select max( sum_flag )
+from (
+         select user_id, ts, flag, sum( flag ) over (order by ts) as sum_flag
+         from (
+                  select user_id, login_ts as ts, 1 as flag
+                  from user_login_detail uld
+                  union all
+                  select user_id, logout_ts as ts, -1 as flag
+                  from user_login_detail u
+              ) flag_tab
+     ) sum_tab
+
+
 
 select *
 from user_login_detail uld1 join user_login_detail uld2
                             on (
                                         uld1.user_id = uld2.user_id
-                                    -- NOTE 很有必要, 不自连接.
                                     and uld1.login_ts != uld2.login_ts
                                     and uld1.login_ts < uld2.logout_ts
                                     and uld1.logout_ts > uld2.login_ts
@@ -3112,7 +3217,7 @@ select uld1.user_id, min( uld1.login_ts ) as unique_login_ts, max( uld1.logout_t
 from user_login_detail uld1 join user_login_detail uld2
                             on (
                                         uld1.user_id = uld2.user_id
-                                    -- NOTE 很有必要, 不自连接.
+                                    --  很有必要, 不自连接.
                                     and uld1.login_ts != uld2.login_ts
                                     and uld1.login_ts < uld2.logout_ts
                                     and uld1.logout_ts > uld2.login_ts
@@ -3121,13 +3226,12 @@ group by uld1.user_id
 ;
 
 -- 找出所有的没有重合的
--- NOTE 使用 left join where is null 实现没有重叠
+-- 使用 left join where is null 实现没有重叠
 
 select *
 from user_login_detail uld1 left join user_login_detail uld2
                             on (
                                         uld1.user_id = uld2.user_id
-                                    -- NOTE 很有必要, 不自连接.
                                     and uld1.login_ts != uld2.login_ts
                                     and uld1.login_ts < uld2.logout_ts
                                     and uld1.logout_ts > uld2.login_ts
@@ -3137,7 +3241,7 @@ where
 ;
 
 
--- NOTE 使用 EXIST 实现没有重叠
+--  使用 EXIST 实现没有重叠
 select *
 from user_login_detail uld1
 where
@@ -3330,6 +3434,10 @@ from (
 
 
 -- 第3题 间断连续登录用户问题
+
+--  间隔连续问题, 只能用 lag, 因为使用 row_number不再有规律
+-- 连续 3 天
+
 -- 3.1 题目需求
 -- 现有各用户的登录记录表（login_events）如下，表中每行数据表达的信息是一个用户何时登录了平台。
 -- user_id	login_datetime
@@ -3341,6 +3449,39 @@ from (
 -- 100	3
 -- 101	6
 -- 102	3
+select user_id, max( sum_flag )
+from (
+         
+         select
+             user_id
+           , login_date
+           , flag
+           , sum( if( flag = 1 or flag = 2, 1, 0 ) )
+                  over (partition by user_id order by login_date) as sum_flag
+         from (
+                  
+                  select user_id, login_date, datediff( login_date, lag_logindate_1 ) as flag
+                  from (
+                           select
+                               user_id
+                             , login_date
+                             , lag( login_date, 1, login_date )
+                                    over (partition by user_id order by login_date) as lag_logindate_1
+                           
+                           from (
+                                    select distinct user_id, date( login_datetime ) as login_date
+                                    from login_events le
+                                ) init_table
+                       ) lag_table
+              ) flag_table
+         -- NOTE 别名应当体现目的,
+         -- NOTE 起别名重视起来, 体现了代码修养
+     ) max_sum_flag_table
+group by user_id
+;
+
+
+-- NOTE 可以用 limit 看看表结构, 但是最后一定要去掉 limit
 
 select user_id, max( sum_flag )
 from (
@@ -3352,7 +3493,7 @@ from (
                   select
                       user_id
                     , date_login_time
-                      --   , row_number( ) over (partition by user_id order by date_login_time)
+                    , row_number( ) over (partition by user_id order by date_login_time)
                     , lag( date_login_time, 1, date_login_time ) over (partition by user_id order by date_login_time)
                     , datediff( date_login_time,
                                 lag( date_login_time, 1, date_login_time )
@@ -3361,57 +3502,16 @@ from (
                   from (
                            select distinct user_id, date( login_datetime ) as date_login_time
                            from login_events le
-                       ) t1
-              ) t12
-     ) t123
+                       ) init_table
+              ) flag_table
+     ) sum_table
+
 group by user_id
--- where flag=1 or flag=2
 ;
 
--- 核对
-select
-    user_id
-  , max( recent_days ) as max_recent_days --求出每个用户最大的连续天数
-from (
-         select
-             user_id
-           , user_flag
-           , datediff( max( login_date ), min( login_date ) ) + 1 as recent_days --按照分组求每个用户每次连续的天数(记得加1)
-         from (
-                  select
-                      user_id
-                    , login_date
-                    , lag1_date
-                    , concat( user_id, '_', flag ) as user_flag --拼接用户和标签分组
-                  from (
-                           select
-                               user_id
-                             , login_date
-                             , lag1_date
-                             , sum( if( datediff( login_date, lag1_date ) > 2, 1, 0 ) )
-                                    over (partition by user_id order by login_date) as flag --获取大于2的标签
-                           from (
-                                    select
-                                        user_id
-                                      , login_date
-                                      , lag( login_date, 1, '1970-01-01' )
-                                             over (partition by user_id order by login_date) as lag1_date --获取上一次登录日期
-                                    from (
-                                             select
-                                                 user_id
-                                               , date_format( login_datetime, 'yyyy-MM-dd' ) as login_date
-                                             from login_events
-                                             group by user_id, date_format( login_datetime, 'yyyy-MM-dd' ) --按照用户和日期去重
-                                         ) t1
-                                ) t2
-                       ) t3
-              ) t4
-         group by user_id, user_flag
-     ) t5
-group by user_id;
 
 
--- 第4题 日期交叉问题
+-- 第4题 日期交叉问题 STAR STAR
 -- 4.1 题目需求
 -- 现有各品牌优惠周期表（promotion_info）如下，其记录了每个品牌的每个优惠活动的周期，其中同一品牌的不同优惠活动的周期可能会有交叉。
 -- promotion_id	brand	start_date	end_date
@@ -3425,23 +3525,30 @@ group by user_id;
 -- redmi	22
 -- huawei	22
 
-select pi1.brand, min( pi1.start_date ), max( pi1.end_date )
-from promotion_info pi1 join promotion_info pi2
-                        on pi1.promotion_id != pi2.promotion_id
-                            and pi1.start_date < pi2.end_date
-                            and pi1.end_date > pi2.start_date
-                            and pi1.brand = pi2.brand
-group by pi1.brand
-
-
--- 去掉重合的. 使用 join 或者 exist 的方式, 只能确认是不是有过重合, 具体的数量很难计算.
-select *
-from promotion_info pi1 join promotion_info pi2
-                        on pi1.promotion_id != pi2.promotion_id
-                            and pi1.start_date < pi2.end_date
-                            and pi1.end_date > pi2.start_date
-                            and pi1.brand = pi2.brand
+select brand, sum( datediff( end_date, new_start_date ) + 1 ) as promotion_days
+from (
+         select
+             brand
+           , start_date
+           , end_date
+           , max_last_enddate
+           , if( max_last_enddate is null or max_last_enddate < start_date, start_date,
+                 date_add( max_last_enddate, 1 ) ) as new_start_date
+         from (
+                  select
+                      brand
+                    , start_date
+                    , end_date
+                    , max( end_date )
+                           over (partition by brand order by start_date rows between unbounded preceding and 1 preceding) as max_last_enddate
+                  from promotion_info
+              ) max_last_enddate_table
+     ) new_start_date
+where
+    new_start_date <= end_date
+group by brand
 ;
+
 
 -- 参考
 select
@@ -3451,11 +3558,12 @@ from (
          select
              brand
            , max_end_date
-              -- NOTE 使用 if, 很经典的判断
-              -- 一发入魂, 不用迭代地去解决了
+           --  使用 if, 很经典的判断
+           -- 一发入魂, 不用迭代地去解决了
            , if( max_end_date is null or start_date > max_end_date, start_date,
+                 --  日期不能直接加减
                  date_add( max_end_date, 1 ) ) as start_date -- 这里采用了重合时, 就往后调整起始日期.
-              -- NOTE 老老实实把原始数据弄出来, 最省力.
+           --  老老实实把原始数据弄出来, 最省力.
            , end_date
          from (
                   select
@@ -3468,5 +3576,5 @@ from (
               ) t1
      ) t2
 where
-    end_date > start_date
+    end_date >= start_date
 group by brand;

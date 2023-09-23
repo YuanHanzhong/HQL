@@ -53,7 +53,7 @@ order by s2.stu_id;
 desc course;
 select course_name
 from course c;
--- 括号不自动匹配是因为本身没哟匹配 NOTE
+-- 括号不自动匹配是因为本身没哟匹配
 
 ((
      ()
@@ -85,13 +85,13 @@ select
 from student;
 
 -- 2022/10/7 10:16 获取各种时间
--- current_date默认就是 0 点 0 分 NOTE
+-- current_date默认就是 0 点 0 分
 select `current_date`( );
 select `current_timestamp`( );
 select current_database( );
--- 天数可以相减 NOTE
+-- 天数可以相减
 select datediff( `current_timestamp`( ), '2023-08-20' );
--- 用日期函数的时候, 如果返回 null 或者什么也没有返回, 常常是格式出问题了 NOTE
+-- 用日期函数的时候, 如果返回 null 或者什么也没有返回, 常常是格式出问题了
 -- 月数可以相减, 相加
 -- hive 的函数很强大, 常用的, 人家都有
 
@@ -127,13 +127,15 @@ select weekofyear( '2022-10-11 11:10:23' );
 -- 2022/10/7 10:26 取今天的0时0分0秒
 select floor_day( `current_timestamp`( ) );
 
--- 2022/10/7 10:30 NOTE 活了多少个月了
+-- 2022/10/7 10:30  活了多少个月了
 select add_months( `current_date`( ), 7 );
+
+select months_between(`current_date`(),'1993-10-02')
 
 describe function floor_month;
 
 
--- floor的都要用时间戳 NOTE
+-- floor的都要用时间戳
 select floor_day( `current_timestamp`( ) );
 
 select floor_month( `current_timestamp`( ) ); -- 需要传入时间戳
@@ -368,7 +370,7 @@ select concat( '你好', '1', '2', '3' )
 select concat_ws( '分隔符', '1', '2', '3' )
 
 
--- 2022/10/19 10:42 NOTE 内容的话用concat, 分别取出年和月(直接取出就行, 不用自己除), if()
+-- 2022/10/19 10:42  内容的话用concat, 分别取出年和月(直接取出就行, 不用自己除), if()
 select
     stu_id
   , stu_name
@@ -646,7 +648,7 @@ where
 
 
 
--- 2022/11/1 15:42 NOTE 扩展列的个数, 3 个方法
+-- 2022/11/1 15:42  扩展列的个数, 3 个方法
 --      join或者
 --      开窗或者
 --      select
@@ -758,7 +760,7 @@ from score s
 where
     stu_id = '017'
 
--- 2022/10/8 14:27 NOTE 为null时不计行数, 不为null则计数为1
+-- 2022/10/8 14:27 为null时不计行数, 不为null则计数为1
 select nvl( null, 2 )
 -- count(*)
 
@@ -802,10 +804,10 @@ group by stu_id
 order by stu_id, avg( t1.course )
 
 
--- 2022/10/8 15:19 NOTE `` 和 '' "" 的使用规则
+-- 2022/10/8 15:19  `` 和 '' "" 的使用规则
 --     别名用``, 字符串用'', ""一般不用
 
--- 2022/10/8 15:28 NOTE 多个表有重名时, 要指定某个列, 否则容易出错
+-- 2022/10/8 15:28  多个表有重名时, 要指定某个列, 否则容易出错
 select *
 from score
      join student s
@@ -952,15 +954,15 @@ where
 
 -- 4.1.2 查询没有学全所有课的学生的学号、姓名
 -- 2022/10/19 9:46 select是最终想要的结果, 也是最后执行的
--- 2022/10/19 9:46 NOTE 顺序: from --> where --> group by --> having  --> select --> order by --> limit
--- select 是在 having 之后执行的 NOTE
+-- 2022/10/19 9:46  顺序: from --> where --> group by --> having  --> select --> order by --> limit
+-- select 是在 having 之后执行的
 select student.stu_id, student.stu_name, count( course_id ) as c
 from student
      join score s
      on student.stu_id = s.stu_id
 group by student.stu_id, student.stu_name
 having
-    -- 2022/10/9 14:29 NOTE  不能使用别名, 因为having在select之前执行, 直接使用函数
+    -- 2022/10/9 14:29   不能使用别名, 因为having在select之前执行, 直接使用函数
     --  Only SubQuery expressions that are top level conjuncts are allowed
     --  c  <
     count( course_id ) <
@@ -1133,8 +1135,8 @@ from score s
 group by course_id;
 
 
--- 2022/10/20 18:08 NOTE 扩展列就用join
--- 2022/10/20 18:11 NOTE join 要有on, 没有on就是耍流氓
+-- 2022/10/20 18:08  扩展列就用join
+-- 2022/10/20 18:11  join 要有on, 没有on就是耍流氓
 
 
 select course_name, t1.`不及格人数`, t2.`及格人数`
@@ -1209,7 +1211,7 @@ order by course_id
 -- 2022/10/20 18:26  5.1.6 使用分段[100-85],[85-70],[70-60],[<60]来统计各科成绩，分别统计：各分数段人数，课程号和课程名称
 
 
--- 使用 flag 漂亮事例 NOTE, 比 union 强太多了
+-- 使用 flag 漂亮事例 , 比 union 强太多了
 select
     course_id
   , sum( `if`( course > 85 and course <= 100, 1, 0 ) ) as `(85-100]`
@@ -1396,8 +1398,24 @@ where
   AND sc.course < 60
 order by sc.course desc;
 
--- 2022/11/1 20:28  5.2.2 查询任何一门课程成绩在70分以上的学生的姓名、课程名称和分数 STAR
--- 先分析题目, 把逻辑弄清, 看清楚要求什么, 至关重要. NOTE
+-- 2022/11/1 20:28  5.2.2 查询任何一门课程成绩在70分以上的学生的姓名、课程名称和分数
+
+select stu_name,course_name,course
+from student s join score s2 on s2.stu_id = s.stu_id
+join course c on c.course_id = s2.course_id
+where s.stu_id in(
+                     select distinct stu_id
+                     from score s
+                     where
+                         course > 70)
+;
+
+
+
+
+
+
+-- 先分析题目, 把逻辑弄清, 看清楚要求什么, 至关重要.
 select s.stu_id, stu_name, course_name, course
 from score        s
      join course  c
@@ -1408,7 +1426,7 @@ where
         s.stu_id in (
                         select distinct
                             stu_id
-                            -- 当发现不正常的红字的时候, 很可能是关键词写错了 NOTE
+                            -- 当发现不正常的红字的时候, 很可能是关键词写错了
                         from score
                         where
                             course > 70
@@ -1587,7 +1605,7 @@ from (
          from score s
          group by stu_id
      ) t1
-     -- 没有起别名报错 NOTE
+     -- 没有起别名报错
      --      EOF
      --      cannot recognize input near 'where' 'sel_01' '=' in subquery source
 where
@@ -1645,7 +1663,7 @@ where
 
 
 -- 2022/11/2 8:40 exists 关键字怎么用
--- exist 的样例用法 NOTE
+-- exist 的样例用法
 
 
 select
@@ -1834,7 +1852,7 @@ where
 order by s3.stu_id
 
 
--- concat 是用来连接元素的, 把元素连接成字符串 NOTE
+-- concat 是用来连接元素的, 把元素连接成字符串
 
 -- STAR 5.2.12查询所学课程与学号为“001”的学生所学课程  完全相同  的学生的学号和姓名
 -- 就是比较两个集合而已
@@ -1848,10 +1866,10 @@ from (
      ) col_all
 where
         col_course_id in
-        -- in的本质就是挑出完全相等的 NOTE
+        -- in的本质就是挑出完全相等的
         (
             -- 001 所选课的集合
-            -- 集合的本质, 就是不考虑顺序和去重 NOTE
+            -- 集合的本质, 就是不考虑顺序和去重
             select collect_set( course_id )
             from score s
             where
@@ -1862,7 +1880,7 @@ where
 
 -- 5.2.13 按平均成绩从高到低显示所有学生的所有课程的成绩以及平均成绩
 
--- 所有 ==== 开窗 NOTE
+-- 所有 ==== 开窗
 select *, avg( course ) over (partition by stu_id ) as avg_score
 from score s
 order by avg_score desc;
@@ -1914,11 +1932,11 @@ order by a_c.avg_c desc;
 
 
 -- 6.1.1 查询每个学生的学生平均成绩及其名次
--- 2022/11/3 19:31 NOTE 加一个成绩列就是多开一层窗
+-- 2022/11/3 19:31  加一个成绩列就是多开一层窗
 
 
 -- 为什么rank 不会增加
--- rank 一定要和 order by 一起使用, 否则值不会增加 NOTE
+-- rank 一定要和 order by 一起使用, 否则值不会增加
 select *, rank() over (order by avg_course desc)
 from (
          select stu_id, avg( course ) as avg_course
@@ -2090,9 +2108,8 @@ from (
          -- 先筛选, 再 join, 高效
      join student s2 on top2.stu_id = s2.stu_id
 ;
--- NOTE 开窗函数, 缺少参数的时候, 报错  breakup Windowing
--- rank一定和 orderby 连用, NOTE
--- collect 一定和partition 连用, NOTE
+-- 开窗函数, 缺少参数的时候, 报错  breakup Windowing
+-- rank一定和 order by 连用,
 
 select stu_name, course_name, tea_name, course, rk
 from (
@@ -2227,7 +2244,7 @@ from order_summary os
 ;
 
 
--- 2022/11/4 9:27 NOTE order by 往往和desc结合, 因为常常要查最高的
+-- 2022/11/4 9:27  order by 往往和desc结合, 因为常常要查最高的
 select *
 from (
          select *, dense_rank( ) over (order by sum desc) as rk

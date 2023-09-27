@@ -1,7 +1,120 @@
+
+
+-- 会有
+select rand(1);
+
+
+select rand();
+
+select exp(3);
+select ln(100);
+select log10(100.0);
+
+select log2(9);
+
+select log(4,256);
+
+select pow(4,3);
+
+select sqrt(100);
+
+select bin(7);
+
+select hex(889);
+
+select abs(-90);
+
+select unhex('1333');
+
+select pi();
+
+-- NOTE 给出很多元素, 求中的最大值, max 只能求一列
+select greatest(5,3,59);
+
+-- NOTE 很多元素中, 求最小的
+select least(8,3,5);
+
+-- NOTE 银行家, bank round 四舍五入, 要最后一位是偶数
+select bround(9.8);
+select bround(4.5); --4
+select bround(9.5); --10
+
+select bround(9.865,2); --9.86
+select bround(9.875,2); --9.88
+
+-- NOTE round 常规的四舍五入
+select round(8.565);
+select round(9.565);
+select round(8.865);
+select round(9.465);
+select round(8.465);
+select round(8.465,1); --8.5
+select round(8.465,2); --8.47
+
+
+
+
+
+-- positive mode
+
+
+select pmod(-9,2);
+select abs(-9);
+
+
+-- NOTE 和日期相关的函数很多都有下划线, 可能是因为要表示动作, 为了好区分单词
+select date_add();
+select add_months();
+
+select unix_timestamp();
+select  unix_timestamp('2011-12-07 13:01:03');
+
+select from_unixtime( 1695780417,'yyyy_MM');
+
+-- NOTE  各种日期函数很强大
+
+select date( '2011-12-07 13:01:03');
+
+select `current_date`();
+select `current_timestamp`();
+
+-- NOTE 日期相关的, 如果结果为 null, 很可能是格式错了
+select to_unix_timestamp('2011-12-07 13:01:03')
+;
+
+
+-- NOTE 注意使用 month 的时候, 会忽略年和日的不同
+
+-- P1 floor
+
+
+-- P1 中位数函数
+
+
+
+
+
+
+
+show functions like '*_*';
+
+show tables;
+
+
+
+SELECT function_name
+FROM your_functions_table -- 这里替换成存储函数信息的表名
+WHERE
+    function_name NOT LIKE '%\_%';
+
+show databases;
+
+
 -- 查看基本信息
 show functions;
 show databases like 'de*';
--- 匹配数据库的名字和表的名字时,使用*而不是%
+-- NOTE 匹配数据库的名字和表的名字时,使用*而不是%, 可能是因为linux中使用*来匹配
+-- NOTE 匹配字符串时使用 %
 -- 很多关键字和数据库匹配时,语法有些不同
 show tables like "bu*";
 
@@ -306,7 +419,7 @@ select
                 over (partition by name,month( orderdate ) order by orderdate )                                                          as last_value2
 from business
 
--- 查询前20%时间的订单信息
+-- 查询前20%时间的订单信息 STAR
 select *
 from (
          select *, ntile( 5 ) over (order by orderdate) as nt
@@ -1149,8 +1262,45 @@ having
 
 
 
--- 5.2.6 [课堂讲解] 查询学过“李体音”老师所教的所有课的同学的学号、姓名 STAR
+-- 5.2.6 [课堂讲解] 查询学过“李体音”老师所教的所有课的同学的学号、姓名
+-- NOTE 所有问题, 转化为计数问题
 -- 思路: 把所有问题转化为统计问题, 然后恰好等于
+
+
+select stu_id,stu_name
+from student s
+-- 最好不用 join, 需要什么信息的时候用 in
+where stu_id in (
+                    select stu_id
+                    from score
+                    where
+                            course_id in (
+                                             select course_id
+                                             from (
+                                                      select c.course_id
+                                                      from course c join teacher t on t.tea_id = c.tea_id
+                                                      where
+                                                          tea_name = '李体音'
+                                                  ) li_course_tab
+                                         )
+                    group by stu_id
+                    having
+                            count( * ) = (
+                                             select count( c.course_id )
+                                             from course c join teacher t on t.tea_id = c.tea_id
+                                             where
+                                                 tea_name = '李体音'
+                                         )
+    )
+
+;
+
+
+
+
+
+
+
 
 select *
 from student s

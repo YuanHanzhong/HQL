@@ -323,7 +323,34 @@ from (
      ) t1
 ;
 
--- 2.5 查询首次下单后第二天连续下单的用户比率 STAR STAR
+-- 2.5 查询首次下单后第二天连续下单的用户比率 STAR
+
+select
+    sum( `if`( flag = 1 and rn = 2, 1, 0 ) )
+  , sum( `if`( rn = 1, 1, 0 ) )
+from (
+         select
+             user_id
+           , create_date
+           , datediff( create_date, lag_create_date ) as flag
+           , rn
+         from (
+                  select
+                      user_id
+                    , create_date
+                    , lag( create_date, 1 ) over (partition by user_id order by create_date) as lag_create_date
+                    , row_number
+                          ( ) over (partition by user_id order by create_date)               as rn
+                  
+                  from (
+                           select distinct user_id, create_date
+                           from order_info oi
+                       ) init_tab
+              ) lag_tab
+     ) rn
+
+
+
 select sum( `if`( cn = 2, 1, 0 ) ) * 100.0, sum( if( cn = 1 or cn = 2, 1, 0 ) )
 from (
          -- NOTE 连续, 一定是有 count 这个步骤的, 不管是使用 lag, 还是使用row_number()
@@ -348,7 +375,6 @@ from (
          group by user_id, flag
      ) count_table
 ;
-
 
 
 -- 打标记
@@ -650,7 +676,7 @@ having
     sum_sku_num > avg_sku_num
 
 
--- 2.11 用户注册、登录、下单综合统计 STAR STAR
+-- 2.11 用户注册、登录、下单综合统计 STAR
 -- 2.11.1 题目需求
 -- 从用户登录明细表（user_login_detail）和订单信息表（order_info）中查询每个用户的注册日期（首次登录日期）
 -- 总登录次数以及其在2021年的登录次数、订单数和订单总额。期望结果如下：
@@ -659,6 +685,37 @@ having
 -- 101	2021-09-21	5	5	4	143660.00
 -- 102	2021-09-22	4	4	4	177850.00
 -- 103	2021-09-23	2	2	4	75890.00
+
+select
+    sum_tab.user_id
+  , register_date
+  , amount_login_times
+  , amount_login_times_2021
+  , sum_order_times_2021
+  , sum_total_amount_2021
+from (
+         select
+             user_id
+           , min( init_tab.login_date )                            as register_date
+           , count( init_tab.login_date )                          as amount_login_times
+           , sum( if( year( init_tab.login_date ) = 2021, 1, 0 ) ) as amount_login_times_2021
+         from (
+                  select user_id, date( login_ts ) as login_date, date( logout_ts ) as logout_date
+                  from user_login_detail uld
+              ) init_tab
+         group by user_id
+     )          amount_tab
+     left join(
+                  select
+                      sum( `if`( year( create_date ) = 2021, total_amount, 0 ) ) as sum_total_amount_2021
+                    , sum( `if`( year( create_date ) = 2021, 1, 0 ) )            as sum_order_times_2021
+                    , user_id
+                  from order_info oi
+                  group by user_id
+              
+              ) sum_tab
+     on sum_tab.user_id = amount_tab.user_id
+
 
 
 select
@@ -1778,10 +1835,49 @@ from (
 
 
 
---2.23 销售额完成任务指标的商品 STAR STAR
+--2.23 销售额完成任务指标的商品 STAR
 -- 商家要求每个商品每个月需要售卖出一定的销售总额
 -- 假设1号商品销售总额大于1000，2号商品销售总额大于10，其余商品没有要求
 -- 请写出SQL从订单详情表中（order_detail）查询连续两个月销售总额大于等于任务总额的商品
+select sku_id, flag, count( * )
+from (
+         -- NOTE 4. 打标签
+         select sku_id, ym, sum_amount, ymd, rn, add_months( ymd, -rn ) as flag
+         from (
+                  -- NOTE 3. 格式化
+                  select
+                      sku_id
+                    , ym
+                    , sum_amount
+                    , concat( ym, '-01' )                                  as ymd
+                      -- NOTE 月连续只能用 add_month
+                    , row_number( ) over (partition by sku_id order by ym) as rn
+                  
+                  from (
+                           -- NOTE 2. 格式化, 方便后续使用
+                           select
+                               sku_id
+                             , date_format( create_date, 'yyyy-MM' ) as ym
+                             , sum( sku_num * price )                as sum_amount
+                           from (
+                                    -- NOTE 1. 准备尽量少的原始数据, 高效而准确
+                                    select *
+                                    from order_detail od
+                                    where
+                                        -- 这里先写写, 减少计算量
+                                        sku_id in ( 1, 2 )
+                                ) init_tab
+                           group by sku_id, date_format( create_date, 'yyyy-MM' )
+                       ) ym_tab
+                  where
+                      ( sku_id = 1 and sum_amount > 1000 ) or ( sku_id = 2 and sum_amount > 10 )
+              
+              ) ymd
+     ) flag_tab
+group by sku_id, flag
+having
+    count( * ) >= 2
+;
 
 
 -- months_between算的并不是自然月, 其实很精确. , 先集中处理一下
@@ -1804,7 +1900,7 @@ from (
                   from (
                            select distinct sku_id, date_format( create_date, 'yyyy-MM' ) as ym
                            from (
-                                    select sku_id, create_date, sum_price_month
+                                    select sku_id, create_date
                                     from (
                                              select
                                                  sku_id
@@ -1824,6 +1920,8 @@ from (
 where
     months_between( ymd, lag_ymd ) = 1
 ;
+
+
 
 select order_id, create_date, lag( create_date, 1, create_date ) over (partition by sku_id order by create_date)
 from order_detail od
@@ -2026,7 +2124,7 @@ from (
 where
     t2.rk <= 3;
 
---2.26 各品类中商品价格的中位数 STAR STAR
+--2.26 各品类中商品价格的中位数 STAR
 -- 题目需求
 -- 从商品（sku_info ）中价格的中位数, 如果中位数如果是偶数则输出中间两个值的平均值，如果是奇数，则输出中间数即可。
 -- 结果如下：
@@ -2036,35 +2134,53 @@ where
 -- 3	        510.0
 
 
---
-select category_id, avg(price)
+select category_id, avg( price )
 from (
          select
              category_id
-              -- NOTE 开窗一定要考虑下 partition by 和 order by 之后是什么样子
-           , count( * ) over (partition by category_id)                                           as cn
+           , sku_id
+           , price
+           , row_number( ) over (partition by category_id order by price) as rn
+           , count( * ) over (partition by category_id)                   as cn
+         from (
+                  select category_id, sku_id, price
+                  from sku_info si
+              ) init_tab
+     ) tag_tab
+where
+     ( cn % 2 = 0 and rn = cn / 2 or rn = cn / 2 + 1 )
+  or ( cn % 2 = 1 and rn = cn / 2 + 1 )
+group by category_id
+;
+
+--
+select category_id, avg( price )
+from (
+         select
+             category_id
+             -- NOTE 开窗一定要考虑下 partition by 和 order by 之后是什么样子
+           , count( * ) over (partition by category_id)                   as cn
            , price
            , row_number( ) over (partition by category_id order by price) as rn
          from sku_info si
      ) init_tab
 where
-    -- 偶数情况
-    (
-            cn % 2 = 0
-            -- NOTE  只取中间 2 行, 很巧妙
-            and ( rn = cn / 2 or rn = cn / 2 + 1 )
-        )
-    or
-    -- 奇数情况
-    (
-        cn % 2=1
-            -- 选出中间行
-        and rn=cn/2+1
-        )
-    
+  -- 偶数情况
+  (
+                  cn % 2 = 0
+          -- NOTE  只取中间 2 行, 很巧妙
+          and ( rn = cn / 2 or rn = cn / 2 + 1 )
+      )
+  or
+  -- 奇数情况
+  (
+                  cn % 2 = 1
+          -- 选出中间行
+          and rn = cn / 2 + 1
+      )
+
 group by category_id
 ;
-
 
 
 -- 奇数情况
@@ -2305,11 +2421,39 @@ where
     t3.cdrk >= 3
 
 
--- 2.28 查询有新注册用户的当天的新用户数量、新用户的第一天留存率 STAR STAR
+-- 2.28 查询有新注册用户的当天的新用户数量、新用户的第一天留存率 STAR
 -- 从用户登录明细表（user_login_detail）中首次登录算作当天新增，第二天也登录了算作一日留存
 -- 结果如下：
 -- first_login（注册时间）	Register（新增用户数）	Retention（留存率）
 -- 2021-09-21	            1               	0.0
+
+select
+    login_date
+  , sum( `if`( rn = 1, 1, 0 ) ) as register
+  , sum( if( rn = 1 and flag = 1, 1, 0 ) )
+from (
+         select
+             login_date
+           , lead_login_date
+           
+           , datediff( lead_login_date, login_date ) as flag
+           , rn
+         from (
+                  select
+                      -- 留存就得以 user_id为单位
+                      login_date
+                    , lead( login_date ) over (partition by user_id order by login_date) as lead_login_date
+                      -- NOTE 用 rn 来看第一, 第二非常好用
+                    , row_number( ) over (partition by user_id order by login_date)      as rn
+                  
+                  from (
+                           select distinct user_id, date( login_ts ) as login_date
+                           from user_login_detail
+                       ) init_tab
+              ) tag_tab
+     ) rn_tab
+group by login_date
+;
 
 
 -- 2023年09月23日15:17:00
@@ -2570,7 +2714,7 @@ where
     rn = 1
 ;
 
--- 2.34 销售订单首购和次购分析 STAR STAR
+-- 2.34 销售订单首购和次购分析 STAR
 -- 2.34.1 题目需求
 -- 通过商品信息表（sku_info）订单信息表（order_info）订单明细表（order_detail）
 -- 分析如果有一个用户成功下单两个及两个以上的购买成功的手机订单（购买商品为xiaomi 10，apple 12，小米13）
@@ -2579,6 +2723,39 @@ where
 -- 101	2021-09-27	2021-09-28	3
 -- 1010	2021-10-08	2021-10-08	2
 -- 102	2021-10-01	2021-10-01	3
+
+
+select
+    user_id
+  , max( if( rn = 1, create_date, 0 ) ) as first_order_date
+    
+    -- NOTE 日期只可以放到 max 里面,不可以放到 min 里面, min 之后就成了 0 了
+  , max( if( rn = 2, create_date, 0 ) ) as second_order_date
+  , count( * )
+
+from (
+         select user_id, name, od.create_date, row_number( ) over (partition by user_id order by od.create_date) as rn
+         from order_info oi join order_detail od on od.order_id = oi.order_id
+                            join sku_info si on si.sku_id = od.sku_id
+         where
+             name in ( 'xiaomi 10', 'xiaomi 13', 'apple 12' )
+     ) init_table
+group by user_id
+;
+
+
+
+select user_id, count( * ), min( od.create_date ) as first_order_date
+from order_info oi join order_detail od on od.order_id = oi.order_id
+                   join sku_info si on si.sku_id = od.sku_id
+where
+    name in ( 'xiaomi 10', 'xiaomi 13', 'apple 12' )
+group by user_id
+having
+    count( * ) >= 2
+
+
+
 select *
 from sku_info si
 
@@ -2671,7 +2848,7 @@ where
     si.name in ( 'xiaomi 10', 'apple 12', 'xiaomi 13' )
 
 
--- 2.35 同期商品售卖分析表 STAR STAR STAR
+-- 2.35 同期商品售卖分析表 STAR
 -- 从订单明细表（order_detail）中。
 -- 求出同一个商品在2021年和2020年中同一个月的售卖情况对比。
 -- 结果如下（截取部分）：
@@ -2682,6 +2859,18 @@ where
 -- 1	9	0	11
 -- 1	10	2	38
 -- 10	10	94	205
+
+-- 2023年09月23日20:34:03 强壮, 牛逼
+
+select
+    sku_id
+  , month( create_date )
+  , sum( `if`( year( create_date ) = 2020, sku_num, 0 ) )
+  , sum( `if`( year( create_date ) = 2021, sku_num, 0 ) )
+from order_detail od
+group by sku_id, month( create_date )
+
+
 
 select
     sku_id
@@ -2753,8 +2942,6 @@ from (
          group by sku_id, date_format( create_date, 'yyyy-MM' )
      ) t1
 ;
-
-
 
 
 -- 参考核对
@@ -2841,13 +3028,12 @@ from (
      on t1.sku_id = t2.sku_id
 ;
 
--- 2.37 统计活跃间隔对用户分级结果 STAR STAR
--- 打标签的话, 用 case when then 最合适不过. sum if 适合用来分列, 取某个值
+-- 2.37 统计活跃间隔对用户分级结果 STAR
 -- 忠实用户：近7天活跃且非新用户
 -- 新晋用户：近7天新增
 -- 沉睡用户：近7天未活跃但是在7天前活跃
 -- 流失用户：近30天未活跃但是在30天前活跃
--- 假设今天是数据中所有日期的最大值，从用户登录明细表中的用户登录时间给各用户分级，求出各等级用户的人数
+-- 假设今天是数据中所有日期的最大值，从用户登录明细表 user_login_detail 中的用户登录时间给各用户分级，求出各等级用户的人数
 
 -- 结果如下：
 -- Level（用户等级）	Cn（用户数量)
@@ -2855,6 +3041,85 @@ from (
 -- 新增用户	3
 -- 沉睡用户	1
 
+select  level,count(user_id) cn
+from(
+        
+        select
+            user_id
+          , case
+                when
+                            datediff( max( last_active_date ) over (), last_active_date ) <= 7 and
+                            datediff( max( last_active_date ) over (), register_date ) > 7 then 'loyal'
+                when
+                    datediff( max( last_active_date ) over (), register_date ) <= 7        then 'new'
+                when datediff( max( last_active_date ) over (), last_active_date ) > 7     then 'sleep'
+                when datediff( max( last_active_date ) over (), last_active_date ) > 30    then 'go'
+            
+            end level
+        
+        from (
+                 
+                 select
+                     user_id
+                   , max( active_date ) as last_active_date
+                   , min( active_date ) as register_date
+                 from (
+                          select distinct user_id, active_date
+                          from (
+                                   -- 按天连续的,先去重
+                                   select distinct user_id, date( login_ts ) as active_date
+                                   from user_login_detail
+                                   union all
+                                   select distinct user_id, date( logout_ts ) as active_date
+                                   from user_login_detail uld
+                               ) union_tab
+                      ) init_tab
+                 group by user_id
+             ) max_tab
+    )tag_tab
+group by level
+;
+
+
+
+select flag, count( * )
+from (
+         
+         select
+             user_id
+           , case
+                 when datediff( max( last_active ) over (), first_active ) > 7
+                     and datediff( max( last_active ) over (), last_active ) <= 7
+                                                                               then 'loyal'
+                 when datediff( max( last_active ) over (), first_active ) < 7 then 'new'
+                 when datediff( max( last_active ) over (), last_active ) > 7  then 'sleep'
+                 -- NOTE 只要一使用聚合函数, 就要 group by, 除非 over 一下.
+                 -- NOTE 很多次用一个聚合函数的时候就分层, 减少重复计算
+                 when datediff( max( last_active ) over (), last_active ) > 30 then 'go'
+             end as flag
+         from (
+                  
+                  select
+                      user_id
+                      -- NOTE 用户等级就使用 min 和 max
+                    , min( ts ) as first_active
+                    , max( ts ) as last_active
+                  
+                  from (
+                           select distinct user_id, date( login_ts ) as ts
+                           from user_login_detail uld
+                           union
+                           -- 有时候是 union, 有时候是 union all, 具体情况具体分析
+                           select distinct user_id, date( logout_ts ) as ts
+                           from user_login_detail u
+                       
+                       ) init_tab
+                  group by user_id
+              ) tag_tab
+     ) case_tab
+
+group by flag
+;
 -- 2023年09月23日11:55:42
 select level, count( user_id )
 from (
@@ -3017,6 +3282,94 @@ group by user_id
 -- 从订单明细表（order_detail）和商品信息表（sku_info）表中求出国庆7天每天每个品类的商品的动销率和滞销率
 
 
+select *
+from order_detail od
+
+
+select *
+from sku_info si
+
+
+-- 2023年09月23日17:28:52
+
+-- NOTE 日期格式字符串, 有非常严格的格式要求, 0 不可以省略
+
+
+select sum_sku_sale_01, cn
+from (
+         select
+             category_id
+           , sum( `if`( create_date = '2021-10-01', 1, 0 ) ) as sum_sku_sale_01
+           , sum( `if`( create_date = '2021-10-02', 1, 0 ) ) as sum_sku_sale_02
+           , sum( `if`( create_date = '2021-10-03', 1, 0 ) ) as sum_sku_sale_03
+         from (
+                  select od.sku_id, category_id, create_date
+                  from order_detail od join sku_info si on si.sku_id = od.sku_id
+              
+              ) init_tab
+         group by category_id
+     )      sum_tab
+         -- NOTE 想要去个数, 旧的 join, 没有别的选择
+     join (
+              select
+                  category_id
+                , count( * )                                   as cn
+                , sum( if( from_date <= '2020-04-01', 1, 0 ) ) as all_sku_01
+                , sum( if( from_date <= '2020-02-01', 1, 0 ) ) as all_sku_02
+                , sum( if( from_date <= '2020-03-01', 1, 0 ) ) as all_sku_03
+              from sku_info s
+              group by category_id
+          ) cn_tab
+     on cn_tab.category_id = sum_tab.category_id
+
+
+-- 2023年09月23日17:00:15
+select
+    od.sku_id
+  , od.sku_num
+  , category_id
+  , create_date
+  , from_date
+  , sum( if( create_date = '2021-10-01', 1, 0 ) ) over (partition by category_id order by create_date) as sum_order_sku
+    
+    -- NOTE 全部商品数量, 这一步一定得在 join 之前计算, 否则会有很多重复的
+  , sum( if( from_date <= '2021-10-01', 1, 0 ) ) over (partition by category_id)                       as sum_all_sku
+
+from order_detail od left join sku_info si on si.sku_id = od.sku_id
+
+
+-- 99行
+select *
+from order_detail od
+
+
+-- 12行
+select *
+from sku_info si
+
+
+select *
+from order_detail od join sku_info si on si.sku_id = od.sku_id
+
+
+select *
+from order_detail od left join sku_info si on si.sku_id = od.sku_id
+
+select *
+from order_detail
+
+
+select
+    sum( if( from_date < '2021-10-01', 1, 0 ) ) over (partition by category_id)  as on_shelf_2021_10_01
+  , sum( if( from_date < '2021-10-02', 1, 0 ) ) over ( partition by category_id) as on_shelf_2021_10_02
+from sku_info si
+
+
+
+select *
+from order_detail od
+
+
 -- NOTE 很多时候在 count 的时候, 在 join 之前, 否则函数就变了
 
 
@@ -3035,6 +3388,41 @@ group by user_id
 
 -- GPT 2023年09月23日11:04:29
 -- 查询每个品类在指定日期范围内的动销率和滞销率
+
+-- 主查询：计算每天每个品类的动销率和滞销率
+select
+    t2.category_id
+    -- 第1天的动销率和滞销率
+  , t2.day_1 / t3.cn_day1     as day_1_active_rate
+  , 1 - t2.day_1 / t3.cn_day2 as day_1_inactive_rate
+    -- 同理，重复上述逻辑为其他天数，例如：
+  , 1 - t2.day_7 / t3.cn_day7 as day_7_inactive_rate
+from (
+         -- 子查询t2: 按品类汇总每天的动销商品数量
+         select
+             si.category_id
+           , sum( if( od.create_date = '2021-10-01', 1, 0 ) ) as day_1
+             -- 重复上述逻辑为其他天数，例如：
+           , sum( if( od.create_date = '2021-10-07', 1, 0 ) ) as day_7
+         from order_detail  od
+              join sku_info si on od.sku_id = si.sku_id
+              -- 只选择指定日期范围内的数据，并确保商品已上架
+         where
+             od.create_date between '2021-10-01' and '2021-10-07' and si.from_date <= od.create_date
+         group by si.category_id
+     )      t2
+     join (
+              select
+                  category_id
+                , sum( if( sku_info.from_date <= '2021-10-01', 1, 0 ) ) as cn_day1
+                , sum( if( sku_info.from_date <= '2021-10-02', 1, 0 ) ) as cn_day2
+                  -- ... 为每天重复相同的逻辑 ...
+                , sum( if( sku_info.from_date <= '2021-10-07', 1, 0 ) ) as cn_day7
+              from sku_info
+          ) t3 on t2.category_id = t3.category_id
+group by t2.category_id
+;
+
 
 select
     t2.category_id
@@ -3511,7 +3899,7 @@ group by user_id
 
 
 
--- 第4题 日期交叉问题 STAR STAR
+-- 第4题 日期交叉问题 STAR STAR STAR
 -- 4.1 题目需求
 -- 现有各品牌优惠周期表（promotion_info）如下，其记录了每个品牌的每个优惠活动的周期，其中同一品牌的不同优惠活动的周期可能会有交叉。
 -- promotion_id	brand	start_date	end_date
@@ -3524,6 +3912,40 @@ group by user_id
 -- oppo	16
 -- redmi	22
 -- huawei	22
+
+
+
+
+select brand,sum(datediff(end_date,new_start_date)+1)
+from(
+        select brand,start_date,end_date,last_end_date
+               -- P1 if 这里判断很关键
+,
+               `if`( last_end_date <= start_date or last_end_date is null, start_date,
+                   -- NOTE 日期不能直接相加, 最多只是用来比较大小
+                   date_add( last_end_date , 1 ) ) as new_start_date
+        from (
+                 select
+                     brand
+                   , start_date
+                   , end_date
+                     -- last_end_date只是用来铺路的, 不是真的要计算, 是为了计算出新的 start_date
+                   , max( end_date ) over (partition by brand order by start_date
+                     rows between unbounded preceding and 1 preceding ) as last_end_date
+                 from promotion_info pi
+             ) max_tab
+             -- 去掉完全包含的情况 P1
+--         where             last_end_date < end_date
+    )new_start_date_tab
+
+where new_start_date<=end_date
+group by brand
+
+;
+
+
+
+
 
 select brand, sum( datediff( end_date, new_start_date ) + 1 ) as promotion_days
 from (
@@ -3540,7 +3962,8 @@ from (
                     , start_date
                     , end_date
                     , max( end_date )
-                           over (partition by brand order by start_date rows between unbounded preceding and 1 preceding) as max_last_enddate
+                           over (partition by brand order by start_date
+                               rows between unbounded preceding and 1 preceding) as max_last_enddate
                   from promotion_info
               ) max_last_enddate_table
      ) new_start_date
@@ -3577,4 +4000,331 @@ from (
      ) t2
 where
     end_date >= start_date
+group by brand;
+
+
+
+1)
+建表语句
+drop table if exists live_events;
+create table if not exists live_events
+(
+    user_id      int comment '用户id',
+    live_id      int comment '直播id',
+    in_datetime  string comment '进入直播间时间',
+    out_datetime string comment '离开直播间时间'
+)
+    comment '直播间访问记录';
+2
+）数据装载
+INSERT overwrite table
+    live_events
+VALUES
+    ( 100, 1, '2021-12-01 19:00:00', '2021-12-01 19:28:00' )
+  , ( 100, 1, '2021-12-01 19:30:00', '2021-12-01 19:53:00' )
+  , ( 100, 2, '2021-12-01 21:01:00', '2021-12-01 22:00:00' )
+  , ( 101, 1, '2021-12-01 19:05:00', '2021-12-01 20:55:00' )
+  , ( 101, 2, '2021-12-01 21:05:00', '2021-12-01 21:58:00' )
+  , ( 102, 1, '2021-12-01 19:10:00', '2021-12-01 19:25:00' )
+  , ( 102, 2, '2021-12-01 19:55:00', '2021-12-01 21:00:00' )
+  , ( 102, 3, '2021-12-01 21:05:00', '2021-12-01 22:05:00' )
+  , ( 104, 1, '2021-12-01 19:00:00', '2021-12-01 20:59:00' )
+  , ( 104, 2, '2021-12-01 21:57:00', '2021-12-01 22:56:00' )
+  , ( 105, 2, '2021-12-01 19:10:00', '2021-12-01 19:18:00' )
+  , ( 106, 3, '2021-12-01 19:01:00', '2021-12-01 21:10:00' );
+1.3
+代码实现
+select
+    live_id
+  , max( user_count ) as max_user_count
+from (
+         select
+             user_id
+           , live_id
+           , sum( user_change ) over (partition by live_id order by event_time) as user_count
+         from (
+                  select
+                      user_id
+                    , live_id
+                    , in_datetime as event_time
+                    , 1           as user_change
+                  from live_events
+                  union all
+                  select
+                      user_id
+                    , live_id
+                    , out_datetime
+                    , -1
+                  from live_events
+              ) t1
+     ) t2
+group by live_id;
+第
+2
+题 会话划分问题
+2.1
+题目需求
+现有页面浏览记录表（page_view_events
+）如下，表中有每个用户的每次页面访问记录。
+
+user_id	page_id	view_timestamp
+100	home	1659950435
+100	good_search	1659950446
+100	good_list	1659950457
+100	home	1659950541
+100	good_detail	1659950552
+100	cart	1659950563
+101	home	1659950435
+101	good_search	1659950446
+101	good_list	1659950457
+101	home	1659950541
+101	good_detail	1659950552
+101	cart	1659950563
+102	home	1659950435
+102	good_search	1659950446
+102	good_list	1659950457
+103	home	1659950541
+103	good_detail	1659950552
+103	cart	1659950563
+规定若同一用户的相邻两次访问记录时间间隔小于60s
+，则认为两次浏览记录属于同一会话。现有如下需求，为属于同一会话的访问记录增加一个相同的会话id
+字段，期望结果如下：
+user_id	page_id	view_timestamp	session_id
+100	home	1659950435	100-1
+100	good_search	1659950446	100-1
+100	good_list	1659950457	100-1
+100	home	1659950541	100-2
+100	good_detail	1659950552	100-2
+100	cart	1659950563	100-2
+101	home	1659950435	101-1
+101	good_search	1659950446	101-1
+101	good_list	1659950457	101-1
+101	home	1659950541	101-2
+101	good_detail	1659950552	101-2
+101	cart	1659950563	101-2
+102	home	1659950435	102-1
+102	good_search	1659950446	102-1
+102	good_list	1659950457	102-1
+103	home	1659950541	103-1
+103	good_detail	1659950552	103-1
+2.2
+数据准备
+1)
+建表语句
+drop table if exists page_view_events;
+create table if not exists page_view_events
+(
+    user_id        int comment '用户id',
+    page_id        string comment '页面id',
+    view_timestamp bigint comment '访问时间戳'
+)
+    comment '页面访问记录';
+2
+）数据装载
+insert overwrite table
+    page_view_events
+values
+    ( 100, 'home', 1659950435 )
+  , ( 100, 'good_search', 1659950446 )
+  , ( 100, 'good_list', 1659950457 )
+  , ( 100, 'home', 1659950541 )
+  , ( 100, 'good_detail', 1659950552 )
+  , ( 100, 'cart', 1659950563 )
+  , ( 101, 'home', 1659950435 )
+  , ( 101, 'good_search', 1659950446 )
+  , ( 101, 'good_list', 1659950457 )
+  , ( 101, 'home', 1659950541 )
+  , ( 101, 'good_detail', 1659950552 )
+  , ( 101, 'cart', 1659950563 )
+  , ( 102, 'home', 1659950435 )
+  , ( 102, 'good_search', 1659950446 )
+  , ( 102, 'good_list', 1659950457 )
+  , ( 103, 'home', 1659950541 )
+  , ( 103, 'good_detail', 1659950552 )
+  , ( 103, 'cart', 1659950563 );
+2.3
+代码实现
+select
+    user_id
+  , page_id
+  , view_timestamp
+  , concat( user_id, '-', sum( session_start_point ) over (partition by user_id order by view_timestamp) ) as session_id
+from (
+         select
+             user_id
+           , page_id
+           , view_timestamp
+           , if( view_timestamp - lagts >= 60, 1, 0 ) as session_start_point
+         from (
+                  select
+                      user_id
+                    , page_id
+                    , view_timestamp
+                    , lag( view_timestamp, 1, 0 ) over (partition by user_id order by view_timestamp) as lagts
+                  from page_view_events
+              ) t1
+     ) t2;
+第
+3
+题 间断连续登录用户问题
+3.1
+题目需求
+现有各用户的登录记录表（login_events
+）如下，表中每行数据表达的信息是一个用户何时登录了平台。
+user_id	login_datetime
+100	2021-12-01 19:00:00
+100	2021-12-01 19:30:00
+100	2021-12-02 21:01:00
+现要求统计各用户最长的连续登录天数，间断一天也算作连续，例如：一个用户在1,3,5,6
+登录，则视为连续6天登录。期望结果如下：
+user_id	max_day_count
+100	3
+101	6
+102	3
+104	3
+105	1
+3.2
+数据准备
+1)
+建表语句
+drop table if exists login_events;
+create table if not exists login_events
+(
+    user_id        int comment '用户id',
+    login_datetime string comment '登录时间'
+)
+    comment '直播间访问记录';
+2
+）数据装载
+INSERT overwrite table
+    login_events
+VALUES
+    ( 100, '2021-12-01 19:00:00' )
+  , ( 100, '2021-12-01 19:30:00' )
+  , ( 100, '2021-12-02 21:01:00' )
+  , ( 100, '2021-12-03 11:01:00' )
+  , ( 101, '2021-12-01 19:05:00' )
+  , ( 101, '2021-12-01 21:05:00' )
+  , ( 101, '2021-12-03 21:05:00' )
+  , ( 101, '2021-12-05 15:05:00' )
+  , ( 101, '2021-12-06 19:05:00' )
+  , ( 102, '2021-12-01 19:55:00' )
+  , ( 102, '2021-12-01 21:05:00' )
+  , ( 102, '2021-12-02 21:57:00' )
+  , ( 102, '2021-12-03 19:10:00' )
+  , ( 104, '2021-12-04 21:57:00' )
+  , ( 104, '2021-12-02 22:57:00' )
+  , ( 105, '2021-12-01 10:01:00' );
+3.3
+代码实现
+select
+    user_id
+  , max( recent_days ) as max_recent_days --求出每个用户最大的连续天数
+from (
+         select
+             user_id
+           , user_flag
+           , datediff( max( login_date ), min( login_date ) ) + 1 as recent_days --按照分组求每个用户每次连续的天数(记得加1)
+         from (
+                  select
+                      user_id
+                    , login_date
+                    , lag1_date
+                    , concat( user_id, '_', flag ) as user_flag --拼接用户和标签分组
+                  from (
+                           select
+                               user_id
+                             , login_date
+                             , lag1_date
+                             , sum( if( datediff( login_date, lag1_date ) > 2, 1, 0 ) )
+                                    over (partition by user_id order by login_date) as flag --获取大于2的标签
+                           from (
+                                    select
+                                        user_id
+                                      , login_date
+                                      , lag( login_date, 1, '1970-01-01' )
+                                             over (partition by user_id order by login_date) as lag1_date --获取上一次登录日期
+                                    from (
+                                             select
+                                                 user_id
+                                               , date_format( login_datetime, 'yyyy-MM-dd' ) as login_date
+                                             from login_events
+                                             group by user_id, date_format( login_datetime, 'yyyy-MM-dd' ) --按照用户和日期去重
+                                         ) t1
+                                ) t2
+                       ) t3
+              ) t4
+         group by user_id, user_flag
+     ) t5
+group by user_id;
+
+第
+4
+题 日期交叉问题
+4.1
+题目需求
+现有各品牌优惠周期表（promotion_info
+）如下，其记录了每个品牌的每个优惠活动的周期，其中同一品牌的不同优惠活动的周期可能会有交叉。
+promotion_id	brand	start_date	end_date
+1	oppo	2021-06-05	2021-06-09
+2	oppo	2021-06-11	2021-06-21
+3	vivo	2021-06-05	2021-06-15
+现要求统计每个品牌的优惠总天数，若某个品牌在同一天有多个优惠活动，则只按一天计算。期望结果如下：
+brand	promotion_day_count
+vivo	17
+oppo	16
+redmi	22
+huawei	22
+4.2
+数据准备
+1)
+建表语句
+drop table if exists promotion_info;
+create table promotion_info
+(
+    promotion_id string comment '优惠活动id',
+    brand        string comment '优惠品牌',
+    start_date   string comment '优惠活动开始日期',
+    end_date     string comment '优惠活动结束日期'
+) comment '各品牌活动周期表';
+2
+）数据装载
+insert overwrite table
+    promotion_info
+values
+    ( 1, 'oppo', '2021-06-05', '2021-06-09' )
+  , ( 2, 'oppo', '2021-06-11', '2021-06-21' )
+  , ( 3, 'vivo', '2021-06-05', '2021-06-15' )
+  , ( 4, 'vivo', '2021-06-09', '2021-06-21' )
+  , ( 5, 'redmi', '2021-06-05', '2021-06-21' )
+  , ( 6, 'redmi', '2021-06-09', '2021-06-15' )
+  , ( 7, 'redmi', '2021-06-17', '2021-06-26' )
+  , ( 8, 'huawei', '2021-06-05', '2021-06-26' )
+  , ( 9, 'huawei', '2021-06-09', '2021-06-15' )
+  , ( 10, 'huawei', '2021-06-17', '2021-06-21' );
+4.3
+代码实现
+select
+    brand
+  , sum( datediff( end_date, start_date ) + 1 ) as promotion_day_count
+from (
+         select
+             brand
+           , max_end_date
+           , if( max_end_date is null or start_date > max_end_date, start_date,
+                 date_add( max_end_date, 1 ) ) as start_date
+           , end_date
+         from (
+                  select
+                      brand
+                    , start_date
+                    , end_date
+                    , max( end_date )
+                           over (partition by brand order by start_date
+                               rows between unbounded preceding and 1 preceding) as max_end_date
+                  from promotion_info
+              ) t1
+     ) t2
+where
+    end_date > start_date
 group by brand;

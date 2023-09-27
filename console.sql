@@ -6,7 +6,8 @@
 // 2.1.3 检索课程编号为
 “
 04
-”且分数小于60的学生学号
+”且分数小于60
+的学生学号
 ，结果按分数降序排列
 
 
@@ -130,7 +131,7 @@ select floor_day( `current_timestamp`( ) );
 -- 2022/10/7 10:30  活了多少个月了
 select add_months( `current_date`( ), 7 );
 
-select months_between(`current_date`(),'1993-10-02')
+select months_between( `current_date`( ), '1993-10-02' )
 
 describe function floor_month;
 
@@ -1010,7 +1011,22 @@ select *
 from score s
 order by stu_id;
 
--- 5.1.1  查询两门以上不及格课程的同学的学号及其平均成绩 STAR
+-- 5.1.1  查询两门以上不及格课程的同学的学号及其平均成绩
+
+select stu_id, avg( course )
+from score s
+where
+        stu_id in (
+                      select stu_id
+                      from score s
+                      where
+                          course <= 60
+                      group by stu_id
+                      having
+                          count( course_id ) > 2
+                  )
+group by stu_id
+
 
 
 select stu_id, count( course )
@@ -1400,19 +1416,17 @@ order by sc.course desc;
 
 -- 2022/11/1 20:28  5.2.2 查询任何一门课程成绩在70分以上的学生的姓名、课程名称和分数
 
-select stu_name,course_name,course
+select stu_name, course_name, course
 from student s join score s2 on s2.stu_id = s.stu_id
-join course c on c.course_id = s2.course_id
-where s.stu_id in(
-                     select distinct stu_id
-                     from score s
-                     where
-                         course > 70)
+               join course c on c.course_id = s2.course_id
+where
+        s.stu_id in (
+                        select distinct stu_id
+                        from score s
+                        where
+                            course > 70
+                    )
 ;
-
-
-
-
 
 
 -- 先分析题目, 把逻辑弄清, 看清楚要求什么, 至关重要.
@@ -1582,9 +1596,17 @@ where
     01course > 02course;
 
 
--- 5.2.6 STAR 查询学过编号为“01”的课程并且也学过编号为“02”的课程的学生的学号、姓名
+-- 5.2.6 查询学过编号为“01”的课程并且也学过编号为“02”的课程的学生的学号、姓名
 
 -- 一般用 flag 的时候, 都要和 sum if 连用, 然后 group by having进行筛选
+
+select stu_id, count( * )
+from score s
+where
+    course_id in ( '01', '02' )
+group by stu_id
+
+
 
 select stu_id, sum( `if`( course_id = '01' or course_id = '02', 1, 0 ) ) as sum_flag
 from score s
@@ -1685,28 +1707,102 @@ where
           );
 
 
--- 5.2.7  查询学过“李体音”老师所教的所有课的同学的学号、姓名
-select distinct s.course_id
-from score        s
-     join teacher t
+
+-- 5.2.6 [课堂讲解] 查询学过“李体音”老师所教的所有课的同学的学号、姓名 STAR
+-- NOTE NOTE 所有问题, 转化为限定而后计数问题, 为了方便计数, 先 join 所有的
+-- 思路: 把所有问题转化为统计问题, 然后恰好等于
+
+-- NOTE in 的性能未必比 join 性能高, 用 in 的确实是比较难以维护. 最好的办法就是把所有的数据都先 join 起来.
+
+-- NOTE 关键在于限定, 而后数数比较
+
+-- 设置变量来存储 '李体音' 老师的课程数量
+
+-- NOTE 可以设置下临时变量, 不设置临时变量会报错:
+-- having 中不能使用连接
+-- Only SubQuery expressions that are top level conjuncts are allowed
+
+SET courseCount = (
+    SELECT COUNT(*)
+    FROM course c
+    JOIN teacher t ON c.tea_id = t.tea_id
+    WHERE t.tea_name = '李体音'
+    )
+
+select s.stu_id,stu_name
+from score s join course c on c.course_id = s.course_id
+             join student s2 on s2.stu_id = s.stu_id
+             join teacher t on t.tea_id = c.tea_id
 where
-    t.tea_name = '李体音'
+    -- 这里是纠正错误的关键
+    tea_name = '李体音'
+group by s.stu_id
+having count(c.course_id)=courseCount
+;
 
 
-select *
-from score        s
-     join student s2
-     on s2.stu_id = s.stu_id
+-- NOTE 最好的办法就是
+-- 1. 集齐基础数据 2. 打标签 3. 筛选统计
+select stu_id, sum( `if`( flag = 1, flag, 0 ) )
+from (
+         select s.stu_id, c.course_id, 1 as flag
+         from score s join course c on c.course_id = s.course_id
+                      join student s2 on s2.stu_id = s.stu_id
+                      join teacher t on t.tea_id = c.tea_id
+         where
+             -- 这里是纠正错误的关键
+             tea_name = '李体音'
+     ) init_tab
+group by stu_id
+having
+        sum( `if`( flag = 1, flag, 0 ) ) = (
+                                               select count( * )
+                                               from course c2 join teacher t2 on t2.tea_id = c2.tea_id
+                                               where
+                                                   tea_name = '李体音'
+                                           
+                                           )
+
+
+-- 方法1: 只要关键的条件, 这样是错的
+select stu_id, stu_name
+from student s
+     -- 最好不用 join, 需要什么信息的时候用 in
 where
-    s.course_id
+        
+        stu_id in (
+                      select stu_id
+                      from score
+                      where
+                          -- 有一个重合就会被筛选出来, 外层还需要多筛选一下
+                          course_id in (
+                                           select course_id
+                                           from (
+                                                    select c.course_id
+                                                    from course c join teacher t on t.tea_id = c.tea_id
+                                                    where
+                                                        tea_name = '李体音'
+                                                ) li_course_tab
+                                       )
+                      group by stu_id
+                      having
+                              count( * ) = (
+                                               select count( c.course_id )
+                                               from course c join teacher t on t.tea_id = c.tea_id
+                                               where
+                                                   tea_name = '李体音'
+                                           )
+                  )
+;
 
 
+-- 这个逻辑也是错的,
 select
     st.stu_id
   , st.stu_name
 from student st
      join (
-              select stu_id
+              select *
               from score  s
                    join (
                             select course_id
@@ -1716,6 +1812,7 @@ from student st
                             where
                                 tea_name = '李体音'
                         ) t1
+                            -- 只要是有个重合就会筛选出来, 这导致最后虽然数量一样, 但是内容不应完全相同
                    on s.course_id = t1.course_id
           )  t2
      on st.stu_id = t2.stu_id
@@ -1854,7 +1951,137 @@ order by s3.stu_id
 
 -- concat 是用来连接元素的, 把元素连接成字符串
 
--- STAR 5.2.12查询所学课程与学号为“001”的学生所学课程  完全相同  的学生的学号和姓名
+-- 5.2.12查询所学课程与学号为“001”的学生所学课程  完全相同  的学生的学号 STAR   STAR
+
+SELECT s2.stu_id
+FROM score s1 JOIN score s2
+              ON s1.course_id = s2.course_id
+                  and s1.stu_id = '001'
+                  AND s2.stu_id != '001'
+
+GROUP BY s2.stu_id
+
+-- 如果改成查询包含001 所学的所有课程, 怎么改? 这个修改后的问题和查询学过“李体音”老师所教的所有课的同学的学号、姓名有什么区别
+HAVING
+        COUNT( * ) = (
+                         SELECT COUNT( * )
+                         FROM score
+                         WHERE
+                             stu_id = '001'
+                     )
+;
+
+
+-- NOTE 包含问题, 可能更多
+
+SELECT s2.stu_id
+FROM score      s1
+     JOIN score s2 ON s1.course_id = s2.course_id AND s1.stu_id = '001'
+GROUP BY s2.stu_id
+HAVING
+        COUNT( DISTINCT s1.course_id ) = (
+                                             SELECT COUNT( * )
+                                             FROM score
+                                             WHERE
+                                                 stu_id = '001'
+                                         );
+
+-- NOTE 完全一样, 不多不少
+
+SELECT s2.stu_id
+FROM score      s1
+     JOIN score s2 ON s1.course_id = s2.course_id AND s1.stu_id = '001' AND s2.stu_id != '001'
+GROUP BY s2.stu_id
+HAVING
+    -- NOTE count(*) 计算的是匹配上的数量
+        COUNT( * ) = (
+                         SELECT COUNT( * )
+                         FROM score
+                         WHERE
+                             stu_id = '001'
+                     );
+
+
+
+
+
+
+
+
+
+
+SELECT s2.stu_id
+FROM score s1 JOIN score s2
+              ON s1.course_id = s2.course_id
+                  and s1.stu_id = '001'
+                  AND s2.stu_id != '001'
+group by s2.stu_id
+having
+        count( * ) = (
+                         select count( * )
+                         from score
+                         where
+                             stu_id = '001'
+                     )
+;
+
+-- 001学过的课
+
+
+select course_id
+from score s
+where
+    stu_id = '001'
+
+
+
+select *
+from score           s1
+     left join score s2 on s1.course_id = s2.course_id and s1.stu_id != s2.stu_id
+
+
+
+select distinct stu_id
+from score
+where
+        course_id in
+        (
+            select course_id
+            from score s
+            where
+                stu_id = '001'
+        )
+
+
+-- bug P2 这样写有问题
+select *
+from (
+         select
+             stu_id
+           , if( course_id in (
+                                  select course_id
+                                  from score s
+                                  where
+                                      stu_id = '001'
+                              ), 1, 0 ) as flag
+         from score
+     ) if_tab
+group by stu_id
+having
+        sum( flag ) = (
+                          select count( * )
+                          from score s
+                          where
+                              stu_id = '001'
+                      )
+;
+
+select count( * )
+from score s
+where
+    stu_id = '001'
+
+
 -- 就是比较两个集合而已
 
 select *
@@ -1937,7 +2164,7 @@ order by a_c.avg_c desc;
 
 -- 为什么rank 不会增加
 -- rank 一定要和 order by 一起使用, 否则值不会增加
-select *, rank() over (order by avg_course desc)
+select *, rank( ) over (order by avg_course desc)
 from (
          select stu_id, avg( course ) as avg_course
          from score s
@@ -1985,7 +2212,6 @@ from student
 -- 6.1.2 按各科成绩进行排序，并显示在这个学科中的排名
 
 
-
 select *, rank( ) over (partition by course_id order by course desc)
 from score s
 ;
@@ -1993,18 +2219,18 @@ from score s
 
 -- 使用 order by 通常也会一起使用 desc
 
-select  *
-from(
-        select *
-        from (
-                 select stu_id, course, rank( ) over (partition by course_id order by course desc) as rank_course
-                 from score s
-             ) rank_data
-        where
-            rank_course <= 2
-    ) top2
-    -- 先筛选, 再 join, 高效
-join student s2 on top2.stu_id=s2.stu_id
+select *
+from (
+         select *
+         from (
+                  select stu_id, course, rank( ) over (partition by course_id order by course desc) as rank_course
+                  from score s
+              ) rank_data
+         where
+             rank_course <= 2
+     )            top2
+         -- 先筛选, 再 join, 高效
+     join student s2 on top2.stu_id = s2.stu_id
 ;
 
 -- 不能使用 limit, limit 只会把最终的结果输出 2 行
@@ -2064,7 +2290,7 @@ from (
                   from score s
               ) rank_data
          where
-             rank_course <= 3 and rank_course>=2
+             rank_course <= 3 and rank_course >= 2
      )            top2
          -- 先筛选, 再 join, 高效
      join student s2 on top2.stu_id = s2.stu_id
@@ -2089,17 +2315,29 @@ where
   or rk = 3
 ;
 
--- 6.1.5 查询各科成绩前三名的记录（如果有并列，则全部展示，STAR
+-- 6.1.5 查询各科成绩前三名的记录（如果有并列，则全部展示，
 -- 例如如果前7名为：80,80,80,79,79,77,75,70，
 -- 则统计结果为数字的前三名，结果为80,80,80,79,79,77）
 
+select course_id, stu_id, course, drk
+from (
+         select *, dense_rank( ) over (partition by course_id order by course) as drk
+         from score
+     ) init_tab
+where
+    drk <= 3
+
 
 -- 尤其是 join 之后, 就不能用 * , 会有歧义, 更应该写清楚名字.
-select top2.course_id,  collect_list( course ) over (partition by course_id)
+select top2.course_id, collect_list( course ) over (partition by course_id)
 from (
          select *
          from (
-                  select stu_id,course_id, course, rank( ) over (partition by course_id order by course desc) as rank_course
+                  select
+                      stu_id
+                    , course_id
+                    , course
+                    , rank( ) over (partition by course_id order by course desc) as rank_course
                   from score s
               ) rank_data
          where
@@ -2179,11 +2417,9 @@ where
     rk <= 3;
 
 
-
-
-
 -- 高级题
-select * from order_summary;
+select *
+from order_summary;
 DROP TABLE IF EXISTS order_summary;
 CREATE TABLE order_summary
 (
@@ -2236,7 +2472,6 @@ VALUES
 
 
 -- SQL1 计算销量第二的商品
-
 
 
 select *, dense_rank( ) over (partition by id order by sum) as rk
@@ -2725,7 +2960,6 @@ having
 
 select date_sub( '2022-01-10', -3 )
 ;
-
 
 
 -- 2022/11/7 10:08 答案

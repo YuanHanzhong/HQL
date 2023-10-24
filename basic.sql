@@ -419,7 +419,27 @@ select
                 over (partition by name,month( orderdate ) order by orderdate )                                                          as last_value2
 from business
 
--- 查询前20%时间的订单信息 STAR
+-- 查询前20%时间的订单信息
+select *
+from(
+        select *, ntile( 5 ) over (order by create_date) as nt
+        from order_info oi
+    )t1
+where nt=1
+
+;
+
+
+
+
+
+
+
+
+
+
+
+
 select *
 from (
          select *, ntile( 5 ) over (order by orderdate) as nt
@@ -472,6 +492,8 @@ from (
          where
              order_month = 4
      ) t2
+
+
 -- 嵌套就要起别名
 -- 如何消除重复的
 --      distinct

@@ -1707,8 +1707,9 @@ where
           );
 
 
-
 -- 5.2.6 [课堂讲解] 查询学过“李体音”老师所教的所有课的同学的学号、姓名 STAR
+
+
 -- NOTE NOTE 所有问题, 转化为限定而后计数问题, 为了方便计数, 先 join 所有的
 -- 思路: 把所有问题转化为统计问题, 然后恰好等于
 
@@ -1722,23 +1723,43 @@ where
 -- having 中不能使用连接
 -- Only SubQuery expressions that are top level conjuncts are allowed
 
-SET courseCount = (
-    SELECT COUNT(*)
-    FROM course c
-    JOIN teacher t ON c.tea_id = t.tea_id
-    WHERE t.tea_name = '李体音'
-    )
+-- NOTE on 后面的就是条件, where 后面的也是条件, 可以完全互换位置
 
-select s.stu_id,stu_name
-from score s join course c on c.course_id = s.course_id
-             join student s2 on s2.stu_id = s.stu_id
-             join teacher t on t.tea_id = c.tea_id
+select
+    *
+FROM course       c
+     JOIN teacher t
 where
-    -- 这里是纠正错误的关键
-    tea_name = '李体音'
-group by s.stu_id
-having count(c.course_id)=courseCount
+      c.tea_id = t.tea_id
+  and t.tea_name = '李体音';
+
+select *
+FROM course       c
+     JOIN teacher t
+     ON
+         t.tea_name = '李体音'
 ;
+
+
+select stu_id
+from course       c
+     join score   s on s.course_id = c.course_id
+     join teacher t on t.tea_id = c.tea_id and tea_name = '李体音'
+group by stu_id
+having
+        count( c.course_id ) = (
+                                   select
+                                       --         count(*)
+                                       -- NOTE count 使用的时候,要么*, 要么具体是就加上 distinct
+                                       count( distinct course_id )
+                                   from course c2 join teacher t2
+                                   where
+                                         t2.tea_id = c2.tea_id
+                                     and t2.tea_name = '李体音'
+                                   -- NOTE on 后面的 and 可以充当 where, 但是主键之间的连接不可以被 where 取代
+                               )
+;
+
 
 
 -- NOTE 最好的办法就是
@@ -1747,8 +1768,9 @@ select stu_id, sum( `if`( flag = 1, flag, 0 ) )
 from (
          select s.stu_id, c.course_id, 1 as flag
          from score s join course c on c.course_id = s.course_id
-                      join student s2 on s2.stu_id = s.stu_id
                       join teacher t on t.tea_id = c.tea_id
+              -- NOTE 连接时候, 基本的主键相等肯定是不可少的
+              -- NOTE 使用 where 作为筛选条件更清晰
          where
              -- 这里是纠正错误的关键
              tea_name = '李体音'
@@ -1951,8 +1973,65 @@ order by s3.stu_id
 
 -- concat 是用来连接元素的, 把元素连接成字符串
 
--- 5.2.12查询所学课程与学号为“001”的学生所学课程  完全相同  的学生的学号 STAR   STAR
+-- 5.2.12查询所学课程与学号为“001”的学生所学课程  完全相同  的学生的学号 STAR
 
+-- NOTE 最好的办法就是
+-- 1. 集齐基础数据 2. 打标签 3. 筛选统计
+select stu_id, sum( `if`( flag = 1, flag, 0 ) )
+from (
+         select s.stu_id, c.course_id, 1 as flag
+         from score s join course c on c.course_id = s.course_id
+                      join teacher t on t.tea_id = c.tea_id
+              -- NOTE 连接时候, 基本的主键相等肯定是不可少的
+              -- NOTE 使用 where 作为筛选条件更清晰
+         where
+             -- 这里是纠正错误的关键
+             tea_name = '李体音'
+     ) init_tab
+group by stu_id
+having
+        sum( `if`( flag = 1, flag, 0 ) )
+        =
+        (
+            select count( * )
+            from course c2 join teacher t2 on t2.tea_id = c2.tea_id
+            where
+                tea_name = '李体音'
+        
+        )
+
+select *
+from score s;
+
+select *
+from course;
+
+-- NOTE 包含 001 所学的全部
+
+select s2.stu_id
+from score s1 join score s2
+                       -- NOTE on 后面就仅仅接主键相同的连接条件
+              on s1.course_id = s2.course_id
+-- NOTE 剩下的放到 where 里面筛选, 逻辑就会很清晰
+              where
+                  -- 保证有相同的
+                   s1.stu_id = '001'
+                  -- 把自己排除掉
+                  and s2.stu_id != '001'
+group by s2.stu_id
+having
+    -- 等于, 完全相同
+    -- > ,大于, 不存在, 因为上面有限制了 course_id, 即使多也不会筛选出来,
+    -- 小于, 有可能
+    count( * ) = (
+                     SELECT count( * )
+                     FROM score
+                     WHERE
+                         stu_id = '001'
+                 )
+;
+
+-- NOTE 和 001所学的完全相同, 不多不少
 SELECT s2.stu_id
 FROM score s1 JOIN score s2
               ON s1.course_id = s2.course_id
@@ -1960,14 +2039,33 @@ FROM score s1 JOIN score s2
                   AND s2.stu_id != '001'
 
 GROUP BY s2.stu_id
-
--- 如果改成查询包含001 所学的所有课程, 怎么改? 这个修改后的问题和查询学过“李体音”老师所教的所有课的同学的学号、姓名有什么区别
+         
+         -- 如果改成查询包含001 所学的所有课程, 怎么改?
+         -- 这个修改后的问题和查询学过“李体音”老师所教的所有课的同学的学号、姓名有什么区别
 HAVING
         COUNT( * ) = (
-                         SELECT COUNT( * )
+                         SELECT count( * )
                          FROM score
                          WHERE
                              stu_id = '001'
+                     )
+;
+
+
+
+select s.stu_id
+from score s join course c on c.course_id = s.course_id
+             join teacher t on t.tea_id = c.tea_id and tea_name = '李体音'
+
+group by s.stu_id
+having
+        count( * ) = (
+                         select
+                             COUNT( * )
+                         FROM course       c
+                              JOIN teacher t ON c.tea_id = t.tea_id
+                         WHERE
+                             t.tea_name = '李体音'
                      )
 ;
 
@@ -1994,19 +2092,12 @@ FROM score      s1
 GROUP BY s2.stu_id
 HAVING
     -- NOTE count(*) 计算的是匹配上的数量
-        COUNT( * ) = (
-                         SELECT COUNT( * )
-                         FROM score
-                         WHERE
-                             stu_id = '001'
-                     );
-
-
-
-
-
-
-
+    COUNT( * ) = (
+                     SELECT COUNT( * )
+                     FROM score
+                     WHERE
+                         stu_id = '001'
+                 );
 
 
 

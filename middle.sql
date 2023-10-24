@@ -325,6 +325,31 @@ from (
 
 -- 2.5 查询首次下单后第二天连续下单的用户比率 STAR
 
+select sum( `if`( cn = 2, 1, 0 ) ), count( distinct user_id )
+from (
+         select user_id, flag, count( * ) as cn
+         from (
+                  -- 保证连续
+                  select user_id, create_date, rn, date_sub( create_date, rn ) as flag
+                  from (
+                           select
+                               user_id
+                             , create_date
+                             , row_number( ) over (partition by user_id order by create_date) as rn
+                           from (
+                                    select distinct user_id, create_date
+                                    from order_info oi
+                                ) t1
+                       ) rn_tab
+                  where
+                      rn <= 2
+              ) flag_tab
+         
+         group by user_id, flag
+     ) continue_tab
+
+
+
 select
     sum( `if`( flag = 1 and rn = 2, 1, 0 ) )
   , sum( `if`( rn = 1, 1, 0 ) )
@@ -1775,6 +1800,8 @@ group by user_id
 -- 101
 -- 102
 -- 2023年09月21日17:10:12
+
+
 select *
 from (
          select user_id, ip_address, login_ts, logout_ts, last_max_logout_ts
@@ -1835,10 +1862,65 @@ from (
 
 
 
---2.23 销售额完成任务指标的商品 STAR
+--2.23 销售额完成任务指标的商品
 -- 商家要求每个商品每个月需要售卖出一定的销售总额
 -- 假设1号商品销售总额大于1000，2号商品销售总额大于10，其余商品没有要求
 -- 请写出SQL从订单详情表中（order_detail）查询连续两个月销售总额大于等于任务总额的商品
+
+
+
+
+select *
+from order_detail od
+
+desc order_detail;
+
+
+select sku_id, format_create_month, month_amount, lag_create_month, flag
+from (
+         
+         select
+             sku_id
+           , format_create_month
+           , month_amount
+           , lag_create_month
+           , datediff( format_create_month, lag_create_month ) as flag
+         from (
+                  select
+                      sku_id
+                    , format_create_month
+                    , month_amount
+                    , lag( format_create_month, 1, format_create_month )
+                           over (partition by sku_id order by format_create_month) as lag_create_month
+                  from (
+                           select sku_id, concat( create_month, '-01' ) as format_create_month, month_amount
+                           from (
+                                    select sku_id, create_month, sum( amount ) as month_amount
+                                    from (
+                                             select
+                                                 sku_id
+                                               , date_format( create_date, 'yyyy-MM' ) as create_month
+                                               , amount
+                                             from (
+                                                      select sku_id, create_date, price * sku_num as amount
+                                                      from order_detail od
+                                                  ) init_tab
+                                         ) format_tab
+                                    group by sku_id, create_month
+                                ) month_amount_tab
+                           
+                           where
+                               ( sku_id = 1 and month_amount > 1000 ) or ( sku_id = 2 and month_amount > 10 )
+                       ) format_create_month_tab
+              
+              ) lag_tab
+     ) datediff_tab
+where
+    flag > 27 and flag < 32
+;
+
+
+
 select sku_id, flag, count( * )
 from (
          -- NOTE 4. 打标签
@@ -2657,6 +2739,7 @@ from (
          t1.user_id = di.user_id and t1.login_date = di.order_date
 group by t1.user_id, t1.login_date
 
+;
 
 -- 2.31 按年度列出每个商品销售总额
 -- 2.31.1 题目需求
@@ -3028,6 +3111,8 @@ from (
      on t1.sku_id = t2.sku_id
 ;
 
+
+
 -- 2.37 统计活跃间隔对用户分级结果 STAR
 -- 忠实用户：近7天活跃且非新用户
 -- 新晋用户：近7天新增
@@ -3041,42 +3126,51 @@ from (
 -- 新增用户	3
 -- 沉睡用户	1
 
-select  level,count(user_id) cn
-from(
-        
-        select
-            user_id
-          , case
-                when
-                            datediff( max( last_active_date ) over (), last_active_date ) <= 7 and
-                            datediff( max( last_active_date ) over (), register_date ) > 7 then 'loyal'
-                when
-                    datediff( max( last_active_date ) over (), register_date ) <= 7        then 'new'
-                when datediff( max( last_active_date ) over (), last_active_date ) > 7     then 'sleep'
-                when datediff( max( last_active_date ) over (), last_active_date ) > 30    then 'go'
-            
-            end level
-        
-        from (
-                 
-                 select
-                     user_id
-                   , max( active_date ) as last_active_date
-                   , min( active_date ) as register_date
-                 from (
-                          select distinct user_id, active_date
-                          from (
-                                   -- 按天连续的,先去重
-                                   select distinct user_id, date( login_ts ) as active_date
-                                   from user_login_detail
-                                   union all
-                                   select distinct user_id, date( logout_ts ) as active_date
-                                   from user_login_detail uld
-                               ) union_tab
-                      ) init_tab
-                 group by user_id
-             ) max_tab
-    )tag_tab
+
+select user_id, max( login_date ) as latest_login_date, min( login_date ) as register_date
+from (
+         select distinct user_id, date( login_ts ) as login_date,
+         from user_login_detail uld
+     ) t1
+group by user_id;
+;
+
+select level, count( user_id ) as cn
+from (
+         
+         select
+             user_id
+           , case
+                 when
+                             datediff( max( last_active_date ) over (), last_active_date ) <= 7 and
+                             datediff( max( last_active_date ) over (), register_date ) > 7 then 'loyal'
+                 when
+                     datediff( max( last_active_date ) over (), register_date ) <= 7        then 'new'
+                 when datediff( max( last_active_date ) over (), last_active_date ) > 7     then 'sleep'
+                 when datediff( max( last_active_date ) over (), last_active_date ) > 30    then 'go'
+             
+             end as level
+         
+         from (
+                  
+                  select
+                      user_id
+                    , max( active_date ) as last_active_date
+                    , min( active_date ) as register_date
+                  from (
+                           select distinct user_id, active_date
+                           from (
+                                    -- 按天连续的,先去重
+                                    select distinct user_id, date( login_ts ) as active_date
+                                    from user_login_detail
+                                    union all
+                                    select distinct user_id, date( logout_ts ) as active_date
+                                    from user_login_detail uld
+                                ) union_tab
+                       ) init_tab
+                  group by user_id
+              ) max_tab
+     ) tag_tab
 group by level
 ;
 
@@ -3914,36 +4008,35 @@ group by user_id
 -- huawei	22
 
 
+select brand, sum( datediff( end_date, new_start_date ) + 1 )
+from (
+         select
+             brand
+           , start_date
+           , end_date
+           , last_end_date
+             -- P1 if 这里判断很关键
+           , `if`( last_end_date <= start_date or last_end_date is null, start_date,
+                 -- NOTE 日期不能直接相加, 最多只是用来比较大小
+                   date_add( last_end_date, 1 ) ) as new_start_date
+         from (
+                  select
+                      brand
+                    , start_date
+                    , end_date
+                      -- last_end_date只是用来铺路的, 不是真的要计算, 是为了计算出新的 start_date
+                    , max( end_date ) over (partition by brand order by start_date
+                      rows between unbounded preceding and 1 preceding ) as last_end_date
+                  from promotion_info pi
+              ) max_tab
+         -- 去掉完全包含的情况 P1
+         --         where             last_end_date < end_date
+     ) new_start_date_tab
 
-
-select brand,sum(datediff(end_date,new_start_date)+1)
-from(
-        select brand,start_date,end_date,last_end_date
-               -- P1 if 这里判断很关键
-,
-               `if`( last_end_date <= start_date or last_end_date is null, start_date,
-                   -- NOTE 日期不能直接相加, 最多只是用来比较大小
-                   date_add( last_end_date , 1 ) ) as new_start_date
-        from (
-                 select
-                     brand
-                   , start_date
-                   , end_date
-                     -- last_end_date只是用来铺路的, 不是真的要计算, 是为了计算出新的 start_date
-                   , max( end_date ) over (partition by brand order by start_date
-                     rows between unbounded preceding and 1 preceding ) as last_end_date
-                 from promotion_info pi
-             ) max_tab
-             -- 去掉完全包含的情况 P1
---         where             last_end_date < end_date
-    )new_start_date_tab
-
-where new_start_date<=end_date
+where
+    new_start_date <= end_date
 group by brand
-
 ;
-
-
 
 
 
@@ -4176,7 +4269,8 @@ user_id	login_datetime
 100	2021-12-01 19:30:00
 100	2021-12-02 21:01:00
 现要求统计各用户最长的连续登录天数，间断一天也算作连续，例如：一个用户在1,3,5,6
-登录，则视为连续6天登录。期望结果如下：
+登录，则视为连续6
+天登录。期望结果如下：
 user_id	max_day_count
 100	3
 101	6

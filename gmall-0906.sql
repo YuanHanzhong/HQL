@@ -20,6 +20,7 @@ create database gmall;
 
 --ods层
 --日志表
+
 DROP TABLE IF EXISTS ods_log_inc;
 CREATE EXTERNAL TABLE ods_log_inc
 (
@@ -5659,6 +5660,3 @@ CREATE EXTERNAL TABLE ads_trade_stats
 ) COMMENT '交易统计'
     ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
     LOCATION '/warehouse/gmall/ads/ads_trade_stats/';
-
-
-

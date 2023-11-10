@@ -3,7 +3,6 @@
 -- 会有
 select rand(1);
 
-
 select rand();
 
 select exp(3);

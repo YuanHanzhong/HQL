@@ -6,6 +6,5 @@
     <file url="file://$PROJECT_DIR$/gmall-0906.sql" dialect="HiveQL" />
     <file url="file://$PROJECT_DIR$/high.sql" dialect="HiveQL" />
     <file url="file://$PROJECT_DIR$/middle.sql" dialect="GenericSQL" />
-    <file url="file://$PROJECT_DIR$/tuning.sql" dialect="HiveQL" />
   </component>
 </project>
